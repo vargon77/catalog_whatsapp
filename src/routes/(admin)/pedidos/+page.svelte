@@ -1,13 +1,14 @@
 <!-- src/routes/(admin)/pedidos/+page.svelte-->
 <script>
   import { onMount } from 'svelte';
-  import { Bell, Search, Filter as FilterIcon, Eye, MessageCircle, CheckCircle, XCircle } from 'lucide-svelte';
+  import { Bell, Search, Filter as FilterIcon, Eye, MessageCircle, CheckCircle, XCircle,Edit } from 'lucide-svelte';
   import { ESTADOS, CONFIG_ESTADOS, obtenerColorEstado } from '$lib/pedidos/estadosCliente';
   import ModalValidarPago from '$lib/components/pedidos/ModalValidarPago.svelte';
   import ModalCancelar from '$lib/components/pedidos/ModalCancelar.svelte';
   import ModalEnviar from '$lib/components/pedidos/ModalEnviar.svelte';
   import ModalDetalles from '$lib/components/pedidos/ModalDetalles.svelte';
   import BadgePendientes from '$lib/components/pedidos/BadgePendientes.svelte';
+  import ModalEditarPedido from '$lib/components/pedidos/ModalEditarPedido.svelte';
   
   let pedidos = [];
   let loading = true;
@@ -25,6 +26,7 @@
   let modalCancelar = { open: false, pedido: null };
   let modalEnviar = { open: false, pedido: null };
   let modalDetalles = { open: false, pedido: null };
+  let modalEditar = { open: false, pedido: null };
   
   const estados = Object.keys(ESTADOS).map(key => ({
     value: ESTADOS[key],
@@ -94,6 +96,10 @@
     modalEnviar = { open: true, pedido };
   }
   
+  function abrirModalEditar(pedido) {
+  modalEditar = { open: true, pedido };
+  }
+
   function verDetalles(pedido) {
     modalDetalles = { open: true, pedido };
   }
@@ -285,6 +291,14 @@
                         <CheckCircle class="w-5 h-5" />
                       </button>
                     {/if}
+                    <button
+                      on:click={() => abrirModalEditar(pedido)}
+                      class="p-2 text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100"
+                      title="Editar pedido"
+                      disabled={!pedido.editable}
+                    >
+                      <Edit class="w-5 h-5" />
+                    </button>
                     
                     <button
                       on:click={() => verDetalles(pedido)}
@@ -310,6 +324,7 @@
       </div>
     </div>
   {/if}
+  
 </div>
 
 <!-- Modales -->
@@ -331,6 +346,13 @@
   <ModalEnviar
     pedido={modalEnviar.pedido}
     on:close={() => { modalEnviar.open = false; loadPedidos(); }}
+  />
+{/if}
+
+{#if modalEditar.open}
+  <ModalEditarPedido
+    pedido={modalEditar.pedido}
+    on:close={() => { modalEditar.open = false; loadPedidos(); }}
   />
 {/if}
 
