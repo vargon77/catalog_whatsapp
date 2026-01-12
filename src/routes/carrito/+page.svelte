@@ -4,6 +4,7 @@
   import { carrito, carritoVacio } from '$lib/stores/carritoStore';
   import CartItem from '$lib/components/cart/CartItem.svelte';
   import { generarEnlacePedido } from '$lib/utils/whatsapp';
+  import ImageUploader from '$lib/components/ui/ImageUploader.svelte';
   import { goto } from '$app/navigation';
   
   export let data;
@@ -11,13 +12,36 @@
   // Configuración desde el servidor
   $: configuracion = data.configuracion;
   
-  // Calcular totales con impuesto de configuración
-  $: subtotal = $carrito.reduce((total, item) => 
-    total + (item.precio_unitario * item.cantidad), 0
+  // Estados del pedido
+  let requiereFactura = false;
+  let requiereEnvio = false;
+  let metodoPago = '';
+  let costoEnvio = 0;
+  let urlConstancia = '';
+  
+  // Función para calcular totales
+  function calcularTotalesPedido(items, factura, envio, costoEnvioParam, impuestoPorcentaje) {
+    const subtotal = items.reduce((total, item) => 
+      total + (item.precio_unitario * item.cantidad), 0
+    );
+    
+    const impuesto = factura ? (subtotal * (impuestoPorcentaje / 100)) : 0;
+    const costo_envio = envio ? parseFloat(costoEnvioParam || 0) : 0;
+    const total = subtotal + impuesto + costo_envio;
+    
+    return { subtotal, impuesto, costo_envio, total };
+  }
+  
+  // Calcular totales reactivamente
+  $: totales = calcularTotalesPedido(
+    $carrito,
+    requiereFactura,
+    requiereEnvio,
+    costoEnvio,
+    configuracion?.impuesto_porcentaje || 16
   );
-  $: impuestoPorcentaje = (configuracion?.impuesto_porcentaje || 18) / 100;
-  $: impuesto = subtotal * impuestoPorcentaje;
-  $: total = subtotal + impuesto;
+
+  $: ({ subtotal, impuesto, costo_envio, total } = totales);
   
   // Datos del cliente
   let datosCliente = {
@@ -28,7 +52,7 @@
     notas: ''
   };
   
-  // Estados
+  // Estados de UI
   let enviandoPedido = false;
   let pedidoCreado = false;
   let errorCreandoPedido = '';
@@ -53,7 +77,8 @@
           nombre: item.nombre,
           sku: item.sku,
           cantidad: item.cantidad,
-          precio_unitario: item.precio_unitario
+          precio_unitario: item.precio_unitario,
+          imagen_url: item.imagen_url 
         })),
         cliente_nombre: datosCliente.nombre,
         cliente_whatsapp: datosCliente.whatsapp,
@@ -61,8 +86,13 @@
         cliente_direccion: datosCliente.direccion || null,
         subtotal: subtotal,
         impuesto: impuesto,
+        costo_envio: costo_envio,
         total: total,
-        notas: datosCliente.notas || null
+        notas: datosCliente.notas || null,
+        factura: requiereFactura,
+        envio: requiereEnvio,
+        metodo_pago: metodoPago || null,
+        constancia_pago_url: urlConstancia || null
       };
       
       const response = await fetch('/api/pedidos', {
@@ -169,7 +199,7 @@
   {:else}
     <div class="flex flex-col lg:flex-row gap-8">
       <!-- Lista de Productos -->
-      <div class="lg:w-2/3">
+      <div class="lg:w-2/3 space-y-6">
         <div class="bg-white rounded-xl shadow-sm overflow-hidden">
           <!-- Encabezado -->
           <div class="bg-gray-50 px-6 py-4 border-b border-gray-200">
@@ -194,9 +224,11 @@
               <CartItem {item} disabled={enviandoPedido} />
             {/each}
           </div>
-          
-          <!-- Formulario de datos del cliente -->
-          <div class="p-6 border-t border-gray-200 bg-gray-50">
+        </div>
+        
+        <!-- Formulario de datos del cliente -->
+        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+          <div class="p-6 bg-gray-50">
             <h3 class="font-medium text-gray-700 mb-4">Información de contacto</h3>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -225,16 +257,7 @@
                   required
                 />
               </div>
-              <div>
-                <label class="label">Tu email (opcional)</label>
-                <input
-                  type="email"
-                  bind:value={datosCliente.email}
-                  placeholder="Ej: correo@ejemplo.com"
-                  class="input"
-                  disabled={enviandoPedido}
-                />
-              </div>
+             
               <div>
                 <label class="label">Dirección (opcional)</label>
                 <input
@@ -245,17 +268,142 @@
                   disabled={enviandoPedido}
                 />
               </div>
-              <div class="md:col-span-2">
-                <label class="label">Notas adicionales (opcional)</label>
-                <textarea
-                  bind:value={datosCliente.notas}
-                  placeholder="¿Alguna indicación especial?"
-                  rows="2"
-                  class="input resize-none"
-                  disabled={enviandoPedido}
-                ></textarea>
+              
+            </div>
+          </div>
+        </div>
+
+        <!-- FACTURACION, ENVIO Y FORMAS DE PAGO -->
+        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+          <div class="p-6 space-y-4">
+            <h3 class="font-medium text-gray-700 mb-4">Opciones del Pedido</h3>
+            
+            <!-- Facturación -->
+            {#if configuracion?.facturacion_visible}
+              <label class="flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  bind:checked={requiereFactura}
+                  disabled={!configuracion?.facturacion_disponible || enviandoPedido}
+                  class="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                />
+                <span class="ml-2 text-sm text-gray-700">
+                  Requiero factura (+{configuracion?.impuesto_porcentaje || 16}% IVA)
+                </span>
+              </label>
+            {/if}
+            
+            <!-- Envío -->
+            {#if configuracion?.envio_visible}
+              <label class="flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  bind:checked={requiereEnvio}
+                  disabled={!configuracion?.envio_disponible || enviandoPedido}
+                  class="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                />
+                <span class="ml-2 text-sm text-gray-700">
+                  Requiero envío a domicilio
+                </span>
+              </label>
+              
+              {#if requiereEnvio}
+                <div class="ml-6 mt-2">
+                  <label class="label text-xs">Costo de envío (estimado)</label>
+                  <input
+                    type="number"
+                    bind:value={costoEnvio}
+                    min="0"
+                    step="0.01"
+                    class="input text-sm"
+                    placeholder="0.00"
+                    disabled={enviandoPedido}
+                  />
+                  <p class="text-xs text-gray-500 mt-1">
+                    Se confirmará el costo final por WhatsApp
+                  </p>
+                </div>
+              {/if}
+            {/if}
+            
+            <!-- Método de pago -->
+            <div class="mt-4">
+              <label class="label text-sm mb-2">Método de Pago</label>
+              <div class="space-y-2">
+                {#if configuracion?.pago_deposito_visible}
+                  <label class="flex items-center cursor-pointer">
+                    <input
+                      type="radio"
+                      bind:group={metodoPago}
+                      value="deposito"
+                      disabled={!configuracion?.pago_deposito_disponible || enviandoPedido}
+                      class="w-4 h-4 text-primary-600"
+                    />
+                    <span class="ml-2 text-sm text-gray-700">Depósito bancario</span>
+                  </label>
+                {/if}
+                
+                {#if configuracion?.pago_transferencia_visible}
+                  <label class="flex items-center cursor-pointer">
+                    <input
+                      type="radio"
+                      bind:group={metodoPago}
+                      value="transferencia"
+                      disabled={!configuracion?.pago_transferencia_disponible || enviandoPedido}
+                      class="w-4 h-4 text-primary-600"
+                    />
+                    <span class="ml-2 text-sm text-gray-700">Transferencia electrónica</span>
+                  </label>
+                {/if}
               </div>
             </div>
+            
+            <!-- Datos bancarios (si seleccionó método) -->
+            {#if metodoPago && configuracion?.cuentas_pago}
+              {@const cuentas = typeof configuracion.cuentas_pago === 'string' 
+                ? JSON.parse(configuracion.cuentas_pago) 
+                : configuracion.cuentas_pago}
+              
+              {#if Array.isArray(cuentas) && cuentas.length > 0}
+                <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p class="text-sm font-medium text-blue-900 mb-2">
+                    Datos para {metodoPago === 'deposito' ? 'Depósito' : 'Transferencia'}:
+                  </p>
+                  {#each cuentas as cuenta}
+                    <div class="text-xs text-blue-800 space-y-1 mb-3 border-b border-blue-200 pb-2 last:border-0">
+                      <p><strong>Banco:</strong> {cuenta.banco}</p>
+                      <p><strong>Titular:</strong> {cuenta.titular}</p>
+                      <p><strong>Cuenta:</strong> {cuenta.numero_cuenta}</p>
+                      {#if cuenta.clabe}
+                        <p><strong>CLABE:</strong> {cuenta.clabe}</p>
+                      {/if}
+                      {#if cuenta.referencia}
+                        <p><strong>Referencia:</strong> {cuenta.referencia}</p>
+                      {/if}
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            {/if}
+            
+            <!-- Subir constancia de pago -->
+            {#if metodoPago}
+              <div class="mt-4">
+                <label class="label text-sm mb-2">
+                  Constancia de Pago (opcional)
+                </label>
+                <ImageUploader
+                  bind:imageUrl={urlConstancia}
+                  label=""
+                  disabled={enviandoPedido}
+                  on:upload={(e) => urlConstancia = e.detail.url}
+                  on:remove={() => urlConstancia = ''}
+                />
+                <p class="text-xs text-gray-500 mt-1">
+                  Puedes adjuntar tu comprobante o enviarlo después por WhatsApp
+                </p>
+              </div>
+            {/if}
           </div>
         </div>
       </div>
@@ -266,21 +414,30 @@
           <h2 class="text-xl font-bold text-gray-800 mb-6">Resumen del Pedido</h2>
           
           <!-- Detalles -->
-          <div class="space-y-4 mb-6">
+          <div class="space-y-3 mb-6">
             <div class="flex justify-between text-gray-600">
               <span>Subtotal ({$carrito.length} productos)</span>
-              <span class="font-medium">{configuracion.moneda_simbolo}{subtotal.toFixed(2)}</span>
+              <span class="font-medium">{configuracion?.moneda_simbolo || '$'}{subtotal.toFixed(2)}</span>
             </div>
             
-            <div class="flex justify-between text-gray-600">
-              <span>Impuestos ({configuracion.impuesto_porcentaje}%)</span>
-              <span class="font-medium">{configuracion.moneda_simbolo}{impuesto.toFixed(2)}</span>
-            </div>
+            {#if requiereFactura}
+              <div class="flex justify-between text-gray-600">
+                <span>IVA ({configuracion?.impuesto_porcentaje || 16}%)</span>
+                <span class="font-medium">{configuracion?.moneda_simbolo || '$'}{impuesto.toFixed(2)}</span>
+              </div>
+            {/if}
             
-            <div class="border-t border-gray-200 pt-4">
+            {#if requiereEnvio}
+              <div class="flex justify-between text-gray-600">
+                <span>Envío</span>
+                <span class="font-medium">{configuracion?.moneda_simbolo || '$'}{costo_envio.toFixed(2)}</span>
+              </div>
+            {/if}
+            
+            <div class="border-t border-gray-200 pt-3">
               <div class="flex justify-between text-lg font-bold">
                 <span>Total</span>
-                <span class="text-primary-700">{configuracion.moneda_simbolo}{total.toFixed(2)}</span>
+                <span class="text-primary-700">{configuracion?.moneda_simbolo || '$'}{total.toFixed(2)}</span>
               </div>
             </div>
           </div>

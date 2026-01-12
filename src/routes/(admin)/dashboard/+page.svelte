@@ -1,5 +1,5 @@
 <!-- src/routes/(admin)/dashboard/+page.svelte -->
-<!-- CORREGIDO: Manejo correcto de respuestas API -->
+
 <script>
   import { onMount } from 'svelte';
 

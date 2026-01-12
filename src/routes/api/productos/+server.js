@@ -1,7 +1,7 @@
 // src/routes/api/productos/+server.js
-//revisar x
 import { json } from '@sveltejs/kit';
 import { supabase } from '$lib/supabaseClient';
+import { supabaseAdmin } from '$lib/supabaseServer'; // ✅ IMPORTAR ADMIN
 
 function generateSlug(nombre) {
   return nombre
@@ -17,6 +17,7 @@ async function ensureUniqueSlug(baseSlug, excludeId = null) {
   let counter = 1;
   
   while (true) {
+    // ✅ Usar cliente público para lectura (más rápido y no consume service_role)
     const query = supabase
       .from('productos')
       .select('id')
@@ -42,6 +43,7 @@ async function ensureUniqueSlug(baseSlug, excludeId = null) {
   }
 }
 
+// ✅ GET puede usar cliente público (solo lectura)
 export async function GET({ url }) {
   try {
     const destacado = url.searchParams.get('destacado');
@@ -60,7 +62,7 @@ export async function GET({ url }) {
     }
     
     if (categoria_id) {
-      query = query.eq('categoria_id', parseInt(categoria_id));
+      query = query.eq('categoria_id', categoria_id);
     }
     
     const { data, error } = await query;
@@ -74,12 +76,12 @@ export async function GET({ url }) {
   }
 }
 
+// ✅ POST debe usar supabaseAdmin
 export async function POST({ request }) {
   try {
     const body = await request.json();
     console.log('📥 Datos recibidos:', body);
     
-    // Validaciones
     if (!body.nombre?.trim()) {
       return json({ error: 'El nombre es obligatorio' }, { status: 400 });
     }
@@ -88,10 +90,9 @@ export async function POST({ request }) {
       return json({ error: 'La categoría es obligatoria' }, { status: 400 });
     }
     
-    // Conversiones y preparación de datos
     const precio = body.precio ? parseFloat(body.precio) : 0;
     const stock = body.stock !== '' && body.stock !== null ? parseInt(body.stock) : null;
-    const precio_oferta = body.precio_oferta ? parseFloat(body.precio_oferta) : 0;
+    const precio_oferta = body.precio_oferta ? parseFloat(body.precio_oferta) : null;
     
     if (isNaN(precio)) {
       return json({ error: 'El precio debe ser un número válido' }, { status: 400 });
@@ -101,7 +102,6 @@ export async function POST({ request }) {
       return json({ error: 'El stock debe ser un número válido' }, { status: 400 });
     }
     
-    // Generar slug único
     const baseSlug = body.slug?.trim() || generateSlug(body.nombre);
     const slug = await ensureUniqueSlug(baseSlug);
     
@@ -111,8 +111,8 @@ export async function POST({ request }) {
       descripcion_larga: body.descripcion_larga?.trim() || null,
       precio,
       stock,
-      categoria_id: parseInt(body.categoria_id),
-      marca_id: body.marca_id ? parseInt(body.marca_id) : null,  
+      categoria_id: body.categoria_id,
+      marca_id: body.marca_id || null,
       imagen_url: body.imagen_url?.trim() || null,
       destacado: Boolean(body.destacado),
       activo: body.activo !== false,
@@ -121,9 +121,10 @@ export async function POST({ request }) {
       sku: body.sku?.trim() || null
     };
     
-    console.log('💾 Insertando producto:', productoData);
+    console.log('💾 Insertando producto con supabaseAdmin:', productoData);
     
-    const { data, error } = await supabase
+    // ✅ CORRECCIÓN: Usar supabaseAdmin en lugar de supabase
+    const { data, error } = await supabaseAdmin
       .from('productos')
       .insert([productoData])
       .select(`
@@ -154,6 +155,7 @@ export async function POST({ request }) {
   }
 }
 
+// ✅ PUT debe usar supabaseAdmin
 export async function PUT({ request }) {
   try {
     const body = await request.json();
@@ -163,7 +165,6 @@ export async function PUT({ request }) {
       return json({ error: 'ID del producto requerido' }, { status: 400 });
     }
     
-    // Conversiones
     if (updateData.precio !== undefined) {
       updateData.precio = parseFloat(updateData.precio);
     }
@@ -172,17 +173,19 @@ export async function PUT({ request }) {
       updateData.stock = parseInt(updateData.stock);
     }
     
-    if (updateData.precio_oferta !== undefined) {
+    if (updateData.precio_oferta !== undefined && updateData.precio_oferta !== '') {
       updateData.precio_oferta = parseFloat(updateData.precio_oferta);
     }
     
-    // Actualizar slug si cambió el nombre
     if (updateData.nombre) {
       const baseSlug = updateData.slug || generateSlug(updateData.nombre);
       updateData.slug = await ensureUniqueSlug(baseSlug, id);
     }
     
-    const { data, error } = await supabase
+    console.log('📤 Actualizando producto con supabaseAdmin:', id, updateData);
+    
+    // ✅ CORRECCIÓN: Usar supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from('productos')
       .update(updateData)
       .eq('id', id)
@@ -194,13 +197,15 @@ export async function PUT({ request }) {
     
     if (error) throw error;
     
+    console.log('✅ Producto actualizado:', data);
     return json(data);
   } catch (error) {
-    console.error('Error en PUT /api/productos:', error);
+    console.error('❌ Error en PUT /api/productos:', error);
     return json({ error: error.message }, { status: 500 });
   }
 }
 
+// ✅ DELETE debe usar supabaseAdmin
 export async function DELETE({ url }) {
   try {
     const id = url.searchParams.get('id');
@@ -209,16 +214,20 @@ export async function DELETE({ url }) {
       return json({ error: 'ID del producto requerido' }, { status: 400 });
     }
     
-    const { error } = await supabase
+    console.log('🗑️ Eliminando producto con supabaseAdmin:', id);
+    
+    // ✅ CORRECCIÓN: Usar supabaseAdmin
+    const { error } = await supabaseAdmin
       .from('productos')
       .delete()
-      .eq('id', parseInt(id));
+      .eq('id', id);
     
     if (error) throw error;
     
+    console.log('✅ Producto eliminado:', id);
     return json({ success: true });
   } catch (error) {
-    console.error('Error en DELETE /api/productos:', error);
+    console.error('❌ Error en DELETE /api/productos:', error);
     return json({ error: error.message }, { status: 500 });
   }
 }

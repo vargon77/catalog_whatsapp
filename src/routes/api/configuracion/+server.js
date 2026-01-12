@@ -1,5 +1,6 @@
 // src/routes/api/configuracion/+server.js
-//x
+
+
 import { json } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/supabaseServer';
 
@@ -30,6 +31,7 @@ export async function GET() {
 
 // ========================================
 // PUT - Actualizar configuración
+// ✅ CORREGIDO: Incluye imagenes_tienda y ubicacion
 // ========================================
 export async function PUT({ request }) {
   try {
@@ -49,18 +51,27 @@ export async function PUT({ request }) {
     }
     
     const updateData = {};
+    
+    // ✅ CORRECCIÓN: Agregados imagenes_tienda y ubicacion
     const camposPermitidos = [
       'nombre_empresa', 'whatsapp_numero', 'email',
       'direccion', 'horario_atencion', 'moneda_simbolo',
       'impuesto_porcentaje', 'logo_url', 'descripcion_empresa',
       'terminos_condiciones', 'politica_privacidad',
-      'redes_sociales', 'colores_tema'
+      'redes_sociales', 'colores_tema', 'imagenes_tienda', 'ubicacion'
     ];
     
     camposPermitidos.forEach(campo => {
       if (body[campo] !== undefined) {
         updateData[campo] = body[campo];
       }
+    });
+    
+    // ✅ Log para debugging
+    console.log('📤 Actualizando configuración:', {
+      ...updateData,
+      imagenes_tienda: updateData.imagenes_tienda?.length || 0,
+      ubicacion: updateData.ubicacion ? 'presente' : 'ausente'
     });
     
     const { data, error } = await supabaseAdmin
@@ -72,6 +83,8 @@ export async function PUT({ request }) {
     
     if (error) throw error;
     
+    console.log('✅ Configuración actualizada correctamente');
+    
     return json({
       success: true,
       data,
@@ -79,7 +92,7 @@ export async function PUT({ request }) {
     });
     
   } catch (error) {
-    console.error('Error PUT configuración:', error);
+    console.error('❌ Error PUT configuración:', error);
     return json(
       { success: false, error: error.message },
       { status: 500 }

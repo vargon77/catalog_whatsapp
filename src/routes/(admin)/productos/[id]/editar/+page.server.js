@@ -1,3 +1,4 @@
+//src/routes/(admin)/productos/[id]/editar/+page.server.js
 import { error } from '@sveltejs/kit';
 import { supabase } from '$lib/supabaseClient';
 

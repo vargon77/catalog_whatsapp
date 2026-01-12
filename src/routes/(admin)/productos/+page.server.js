@@ -1,4 +1,4 @@
-// src/routes/dashboard/productos/+page.server.js
+// src/routes/(admin)/productos/+page.server.js
 //revisar
 import { supabase } from '$lib/supabaseClient';
 

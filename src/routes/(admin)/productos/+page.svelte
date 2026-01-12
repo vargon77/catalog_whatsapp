@@ -1,5 +1,5 @@
 <!-- src/routes/(admin)/productos/+page.svelte -->
-<!-- CORREGIDO: Rutas API y ciclo infinito -->
+
 <script>
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
