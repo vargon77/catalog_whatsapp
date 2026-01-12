@@ -1,3 +1,5 @@
+
+ <!-- lib/components/dashboard/DashboardHeader.svelte -->
 <script>
   import { Menu, Bell, Search, User, Settings, HelpCircle, Grid } from 'lucide-svelte';
   import { goto } from '$app/navigation';

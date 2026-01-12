@@ -26,7 +26,8 @@
   $: stockBajo = producto.stock > 0 && producto.stock <= (producto.stock_minimo || 5);
   
   // Función para agregar al carrito
-  function agregarAlCarrito() {
+  function agregarAlCarrito(event) {
+    event.preventDefault(); // Evitar navegación al hacer clic en botón
     if (sinStock) return;
     
     // Adaptar el producto al formato del carrito
@@ -45,7 +46,8 @@
   }
   
   // Función para preguntar por WhatsApp
-  function preguntarPorWhatsApp() {
+  function preguntarPorWhatsApp(event) {
+     event.preventDefault(); // Evitar navegación
     const productoWhatsApp = {
       ...producto,
       precio: precioMostrar
@@ -55,7 +57,11 @@
   }
 </script>
 
-<div class="card hover:shadow-lg transition-shadow duration-300 h-full flex flex-col group">
+<!-- ✅ Ahora el card completo es clickeable -->
+<a 
+  href="/productos/{producto.id}" 
+  class="card hover:shadow-lg transition-shadow duration-300 h-full flex flex-col group block"
+>
   <!-- Imagen del producto -->
   <div class="relative h-48 bg-gray-100 overflow-hidden">
     {#if producto.imagen_url}
@@ -73,14 +79,12 @@
     
     <!-- Badges superiores -->
     <div class="absolute top-2 right-2 flex flex-col gap-2">
-      <!-- Badge de oferta -->
       {#if tieneOferta}
         <span class="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded shadow-lg">
           -{descuentoPorcentaje}%
         </span>
       {/if}
       
-      <!-- Badge de stock -->
       {#if stockBajo && !sinStock}
         <span class="bg-amber-500 text-white text-xs font-bold px-2 py-1 rounded shadow-lg">
           ¡Solo {producto.stock}!
@@ -91,7 +95,6 @@
         </span>
       {/if}
       
-      <!-- Badge de destacado -->
       {#if producto.destacado}
         <span class="bg-purple-500 text-white text-xs font-bold px-2 py-1 rounded shadow-lg flex items-center gap-1">
           ⭐ Destacado
@@ -120,7 +123,7 @@
     {/if}
     
     <!-- Nombre -->
-    <h3 class="font-bold text-lg text-gray-800 mb-2 line-clamp-2">
+    <h3 class="font-bold text-lg text-gray-800 mb-2 line-clamp-2 group-hover:text-primary-600 transition-colors">
       {producto.nombre}
     </h3>
     
@@ -188,15 +191,9 @@
       </div>
     </div>
   </div>
-</div>
+</a>
 
 <style>
-  /* Efecto hover en la imagen */
-  .group:hover img {
-    transform: scale(1.05);
-  }
-  
-  /* Animación suave */
   .card {
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
