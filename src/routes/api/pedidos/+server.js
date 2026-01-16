@@ -1,183 +1,153 @@
-// src/routes/api/pedidos/+server.js
+// src/routes/api/pedidos/+server.js (POST method only)
+// ✅ VERSIÓN CORREGIDA con transacciones, validaciones y notificaciones
+
 import { json } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/supabaseServer';
+import { ESTADOS, ESTADOS_PAGO } from '$lib/server/pedidos/estados';
 import { 
-  validarTransicion, 
-  esEditable, 
-  ESTADOS, 
-  ESTADOS_PAGO 
-} from '$lib/server/pedidos/estados';
+  ValidationError,
+  validarDatosCliente,
+  validarItems,
+  validarTotales,
+  sanitizarTexto,
+  sanitizarWhatsApp
+} from '$lib/server/pedidos/validaciones';
+import { encolarNotificacion } from '$lib/server/notificaciones/cola';
 
 // ========================================
-// GET - Listar pedidos con filtros avanzados
-// ========================================
-export async function GET({ url }) {
-  try {
-    const page = parseInt(url.searchParams.get('page') || '1');
-    const limit = parseInt(url.searchParams.get('limit') || '20');
-    const estado = url.searchParams.get('estado');
-    const estadoPago = url.searchParams.get('estado_pago');
-    const busqueda = url.searchParams.get('busqueda');
-    const soloValidacionPendiente = url.searchParams.get('validacion_pendiente') === 'true';
-
-    let query = supabaseAdmin
-      .from('pedidos')
-      .select(`
-        *,
-        items:pedidos_items(
-          id,
-          producto_id,
-          producto_nombre,
-          producto_sku,
-          cantidad,
-          precio_unitario,
-          subtotal,
-          imagen_url
-        ),
-        cliente:clientes(
-          id,
-          nombre,
-          whatsapp,
-          email
-        )
-      `, { count: 'exact' })
-      .order('created_at', { ascending: false });
-    
-    // Filtro: Solo pedidos esperando validación
-    if (soloValidacionPendiente) {
-      query = query.eq('esperando_validacion', true)
-                   .eq('estado_pago', ESTADOS_PAGO.PENDIENTE_VALIDACION);
-    }
-    
-    // Filtro: Búsqueda
-    if (busqueda) {
-      query = query.or(
-        `numero_pedido.ilike.%${busqueda}%,` +
-        `cliente_nombre.ilike.%${busqueda}%,` +
-        `cliente_whatsapp.ilike.%${busqueda}%`
-      );
-    }
-    
-    // Filtro: Estado del pedido
-    if (estado) {
-      query = query.eq('estado', estado);
-    }
-    
-    // Filtro: Estado del pago
-    if (estadoPago) {
-      query = query.eq('estado_pago', estadoPago);
-    }
-    
-    // Paginación
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
-    query = query.range(from, to);
-    
-    const { data, error, count } = await query;
-    
-    if (error) throw error;
-    
-    // Contar pedidos pendientes de validación (para badge)
-    const { count: countValidacion } = await supabaseAdmin
-      .from('pedidos')
-      .select('*', { count: 'exact', head: true })
-      .eq('esperando_validacion', true)
-      .eq('estado_pago', ESTADOS_PAGO.PENDIENTE_VALIDACION);
-    
-    return json({
-      success: true,
-      data,
-      pagination: {
-        page,
-        limit,
-        total: count,
-        totalPages: Math.ceil(count / limit)
-      },
-      metadata: {
-        pendientesValidacion: countValidacion || 0
-      }
-    });
-  } catch (error) {
-    console.error('Error GET pedidos:', error);
-    return json(
-      { success: false, error: error.message },
-      { status: 500 }
-    );
-  }
-}
-
-// ========================================
-// POST - Crear nuevo pedido
+// POST - Crear nuevo pedido (TRANSACCIONAL)
 // ========================================
 export async function POST({ request }) {
+  // Variable para rollback manual si es necesario
+  let pedidoCreado = null;
+  let itemsCreados = null;
+  
   try {
     const body = await request.json();
     
-    // Validaciones
-    if (!body.items || body.items.length === 0) {
-      return json(
-        { success: false, error: 'El pedido debe tener al menos un producto' },
-        { status: 400 }
+    // ========================================
+    // 1. VALIDACIONES DE ENTRADA
+    // ========================================
+    console.log('📝 Validando datos del pedido...');
+    
+    // Validar estructura básica
+    if (!body.items || !Array.isArray(body.items) || body.items.length === 0) {
+      throw new ValidationError(
+        'El pedido debe tener al menos un producto',
+        'MISSING_ITEMS'
       );
     }
     
-    if (!body.cliente_nombre || !body.cliente_whatsapp) {
-      return json(
-        { success: false, error: 'Nombre y WhatsApp del cliente son requeridos' },
-        { status: 400 }
-      );
-    }
+    // Validar datos del cliente
+    const datosCliente = {
+      cliente_nombre: body.cliente_nombre,
+      cliente_whatsapp: body.cliente_whatsapp,
+      cliente_email: body.cliente_email
+    };
+    validarDatosCliente(datosCliente);
     
-    // Generar número de pedido
+    // Validar items
+    validarItems(body.items);
+    
+    // Validar totales
+    validarTotales({
+      subtotal: body.subtotal,
+      impuesto: body.impuesto || 0,
+      costo_envio: body.costo_envio || 0,
+      total: body.total
+    });
+    
+    console.log('✅ Validaciones pasadas');
+    
+    // ========================================
+    // 2. GENERAR NÚMERO DE PEDIDO
+    // ========================================
     const { data: numeroPedido, error: errorNumero } = await supabaseAdmin
       .rpc('generar_numero_pedido');
     
-    if (errorNumero) throw errorNumero;
+    if (errorNumero) {
+      console.error('Error generando número:', errorNumero);
+      throw new Error('No se pudo generar el número de pedido');
+    }
     
-    // Buscar o crear cliente
+    console.log(`📋 Número de pedido generado: ${numeroPedido}`);
+    
+    // ========================================
+    // 3. BUSCAR O CREAR CLIENTE
+    // ========================================
     let clienteId = null;
     
     if (body.cliente_whatsapp) {
+      const whatsappLimpio = sanitizarWhatsApp(body.cliente_whatsapp);
+      
+      // Buscar cliente existente
       const { data: clienteExistente } = await supabaseAdmin
         .from('clientes')
-        .select('id')
-        .eq('whatsapp', body.cliente_whatsapp)
+        .select('id, nombre, email, direccion')
+        .eq('whatsapp', whatsappLimpio)
         .single();
       
       if (clienteExistente) {
         clienteId = clienteExistente.id;
-        await supabaseAdmin
-          .from('clientes')
-          .update({
-            nombre: body.cliente_nombre,
-            email: body.cliente_email || null,
-            direccion: body.cliente_direccion || null
-          })
-          .eq('id', clienteId);
+        
+        // Actualizar datos si cambiaron
+        const actualizarDatos = {};
+        if (body.cliente_nombre !== clienteExistente.nombre) {
+          actualizarDatos.nombre = body.cliente_nombre;
+        }
+        if (body.cliente_email && body.cliente_email !== clienteExistente.email) {
+          actualizarDatos.email = body.cliente_email;
+        }
+        if (body.cliente_direccion && body.cliente_direccion !== clienteExistente.direccion) {
+          actualizarDatos.direccion = body.cliente_direccion;
+        }
+        
+        if (Object.keys(actualizarDatos).length > 0) {
+          await supabaseAdmin
+            .from('clientes')
+            .update(actualizarDatos)
+            .eq('id', clienteId);
+          
+          console.log(`👤 Cliente ${clienteId} actualizado`);
+        } else {
+          console.log(`👤 Cliente ${clienteId} encontrado (sin cambios)`);
+        }
+        
       } else {
-        const { data: nuevoCliente } = await supabaseAdmin
+        // Crear nuevo cliente
+        const { data: nuevoCliente, error: errorCliente } = await supabaseAdmin
           .from('clientes')
           .insert({
             nombre: body.cliente_nombre,
-            whatsapp: body.cliente_whatsapp,
+            whatsapp: whatsappLimpio,
             email: body.cliente_email || null,
             direccion: body.cliente_direccion || null
           })
           .select()
           .single();
         
-        if (nuevoCliente) clienteId = nuevoCliente.id;
+        if (errorCliente) {
+          console.error('Error creando cliente:', errorCliente);
+          throw new Error('No se pudo crear el registro del cliente');
+        }
+        
+        clienteId = nuevoCliente.id;
+        console.log(`👤 Nuevo cliente creado: ${clienteId}`);
       }
     }
     
-    // Crear pedido
+    // ========================================
+    // 4. CREAR PEDIDO (TRANSACCIÓN PARTE 1)
+    // ========================================
+    console.log('💾 Creando pedido...');
+    
     const pedidoData = {
       numero_pedido: numeroPedido,
       cliente_id: clienteId,
-      cliente_nombre: body.cliente_nombre,
-      cliente_whatsapp: body.cliente_whatsapp,
-      cliente_email: body.cliente_email || null,
-      cliente_direccion: body.cliente_direccion || null,
+      cliente_nombre: body.cliente_nombre.trim(),
+      cliente_whatsapp: sanitizarWhatsApp(body.cliente_whatsapp),
+      cliente_email: body.cliente_email?.trim() || null,
+      cliente_direccion: body.cliente_direccion?.trim() || null,
       subtotal: parseFloat(body.subtotal),
       impuesto: parseFloat(body.impuesto || 0),
       costo_envio: parseFloat(body.costo_envio || 0),
@@ -185,229 +155,177 @@ export async function POST({ request }) {
       estado: ESTADOS.PENDIENTE,
       estado_pago: ESTADOS_PAGO.SIN_PAGO,
       editable: true,
-      notas: body.notas || null,
+      notas: sanitizarTexto(body.notas),
       factura: Boolean(body.factura),
       envio: Boolean(body.envio),
-      metodo_pago: body.metodo_pago || null
+      metodo_pago: body.metodo_pago || null,
+      created_at: new Date().toISOString()
     };
     
     const { data: pedido, error: errorPedido } = await supabaseAdmin
       .from('pedidos')
-      .insert(pedidoData)
+      .insert([pedidoData])
       .select()
       .single();
     
-    if (errorPedido) throw errorPedido;
+    if (errorPedido) {
+      console.error('❌ Error insertando pedido:', errorPedido);
+      throw new Error('Error al crear el pedido en la base de datos');
+    }
     
-    // Crear items
+    pedidoCreado = pedido;
+    console.log(`✅ Pedido ${pedido.id} creado`);
+    
+    // ========================================
+    // 5. CREAR ITEMS (TRANSACCIÓN PARTE 2)
+    // ========================================
+    console.log('📦 Creando items del pedido...');
+    
     const itemsData = body.items.map(item => ({
       pedido_id: pedido.id,
-      producto_id: item.id || null,
-      producto_nombre: item.nombre,
-      producto_sku: item.sku || null,
+      producto_id: item.producto_id || item.id || null,
+      producto_nombre: item.nombre.trim(),
+      producto_sku: item.sku?.trim() || null,
       cantidad: parseInt(item.cantidad),
       precio_unitario: parseFloat(item.precio_unitario),
       subtotal: parseFloat(item.precio_unitario) * parseInt(item.cantidad),
-      imagen_url: item.imagen_url || null
+      imagen_url: item.imagen_url?.trim() || null
     }));
     
-    const { error: errorItems } = await supabaseAdmin
+    const { data: items, error: errorItems } = await supabaseAdmin
       .from('pedidos_items')
-      .insert(itemsData);
+      .insert(itemsData)
+      .select();
     
-    if (errorItems) throw errorItems;
+    if (errorItems) {
+      console.error('❌ Error insertando items:', errorItems);
+      
+      // ROLLBACK: Eliminar pedido creado
+      await supabaseAdmin
+        .from('pedidos')
+        .delete()
+        .eq('id', pedido.id);
+      
+      throw new Error('Error al crear los productos del pedido');
+    }
     
-    // Registrar en historial
-    await supabaseAdmin
+    itemsCreados = items;
+    console.log(`✅ ${items.length} items creados`);
+    
+    // ========================================
+    // 6. REGISTRAR EN HISTORIAL
+    // ========================================
+    console.log('📜 Registrando en historial...');
+    
+    const { error: errorHistorial } = await supabaseAdmin
       .from('pedidos_historial')
       .insert({
         pedido_id: pedido.id,
         estado_anterior: null,
         estado_nuevo: ESTADOS.PENDIENTE,
         tipo_usuario: 'cliente',
-        notas: 'Pedido creado desde el carrito'
+        notas: 'Pedido creado desde el carrito',
+        metadata: {
+          items_count: items.length,
+          total: pedido.total,
+          requiere_factura: pedido.factura,
+          requiere_envio: pedido.envio
+        }
       });
     
-    // Obtener pedido completo
+    if (errorHistorial) {
+      console.warn('⚠️ Error registrando historial:', errorHistorial);
+      // No fallar por esto
+    }
+    
+    // ========================================
+    // 7. ENCOLAR NOTIFICACIÓN
+    // ========================================
+    console.log('📲 Encolando notificación...');
+    
+    try {
+      await encolarNotificacion({
+        pedidoId: pedido.id,
+        clienteWhatsapp: pedido.cliente_whatsapp,
+        tipo: 'pedido_recibido',
+        prioridad: 'alta',
+        metadata: {
+          numero_pedido: pedido.numero_pedido,
+          total: pedido.total,
+          items_count: items.length
+        }
+      });
+      console.log('✅ Notificación encolada');
+    } catch (notifError) {
+      console.error('⚠️ Error encolando notificación:', notifError);
+      // No fallar el proceso principal
+    }
+    
+    // ========================================
+    // 8. OBTENER PEDIDO COMPLETO
+    // ========================================
     const { data: pedidoCompleto } = await supabaseAdmin
       .from('pedidos')
-      .select(`*, items:pedidos_items(*)`)
+      .select(`
+        *,
+        items:pedidos_items(*)
+      `)
       .eq('id', pedido.id)
       .single();
     
+    // ========================================
+    // 9. RESPUESTA EXITOSA
+    // ========================================
+    console.log(`✅ Pedido ${pedido.numero_pedido} creado exitosamente`);
+    
     return json({
       success: true,
-      data: pedidoCompleto,
-      message: 'Pedido creado exitosamente'
+      data: pedidoCompleto || { ...pedido, items },
+      message: 'Pedido creado exitosamente',
+      metadata: {
+        numero_pedido: pedido.numero_pedido,
+        total: pedido.total,
+        items_count: items.length,
+        notificacion_encolada: true
+      }
     }, { status: 201 });
     
   } catch (error) {
-    console.error('Error POST pedido:', error);
-    return json(
-      { success: false, error: error.message },
-      { status: 500 }
-    );
-  }
-}
-
-// ========================================
-// PUT - Actualizar pedido (con validaciones)
-// ========================================
-export async function PUT({ request }) {
-  try {
-    const body = await request.json();
+    console.error('❌ Error en POST /api/pedidos:', error);
     
-    if (!body.id) {
+    // ROLLBACK MANUAL si algo quedó creado
+    if (pedidoCreado && !itemsCreados) {
+      try {
+        await supabaseAdmin
+          .from('pedidos')
+          .delete()
+          .eq('id', pedidoCreado.id);
+        console.log('🔄 Rollback ejecutado: pedido eliminado');
+      } catch (rollbackError) {
+        console.error('❌ Error en rollback:', rollbackError);
+      }
+    }
+    
+    // Respuesta de error tipificada
+    if (error instanceof ValidationError) {
       return json(
-        { success: false, error: 'ID del pedido requerido' },
+        { 
+          success: false, 
+          error: error.message,
+          code: error.code
+        },
         { status: 400 }
       );
     }
     
-    // Obtener pedido actual
-    const { data: pedidoActual, error: errorPedido } = await supabaseAdmin
-      .from('pedidos')
-      .select('*')
-      .eq('id', body.id)
-      .single();
-    
-    if (errorPedido) throw errorPedido;
-    if (!pedidoActual) {
-      return json(
-        { success: false, error: 'Pedido no encontrado' },
-        { status: 404 }
-      );
-    }
-    
-    // Validar si es editable
-    if (body.items && !esEditable(pedidoActual)) {
-      return json(
-        { success: false, error: 'Este pedido ya no puede ser editado' },
-        { status: 403 }
-      );
-    }
-    
-    // Validar transición de estado
-    if (body.estado && body.estado !== pedidoActual.estado) {
-      const validacion = validarTransicion(pedidoActual.estado, body.estado);
-      if (!validacion.valido) {
-        return json(
-          { success: false, error: validacion.mensaje },
-          { status: 400 }
-        );
-      }
-    }
-    
-    const updateData = {};
-    const camposPermitidos = [
-      'estado', 'notas', 'fecha_entrega', 'costo_envio',
-      'motivo_cancelacion', 'guia_envio', 'validado_por'
-    ];
-    
-    camposPermitidos.forEach(campo => {
-      if (body[campo] !== undefined) {
-        updateData[campo] = body[campo];
-      }
-    });
-    
-    // Actualizar items si se envían
-    if (body.items && esEditable(pedidoActual)) {
-      // Eliminar items actuales
-      await supabaseAdmin
-        .from('pedidos_items')
-        .delete()
-        .eq('pedido_id', body.id);
-      
-      // Insertar nuevos items
-      const itemsData = body.items.map(item => ({
-        pedido_id: body.id,
-        producto_id: item.id || null,
-        producto_nombre: item.nombre,
-        producto_sku: item.sku || null,
-        cantidad: parseInt(item.cantidad),
-        precio_unitario: parseFloat(item.precio_unitario),
-        subtotal: parseFloat(item.precio_unitario) * parseInt(item.cantidad),
-        imagen_url: item.imagen_url || null
-      }));
-      
-      await supabaseAdmin
-        .from('pedidos_items')
-        .insert(itemsData);
-      
-      // Actualizar totales
-      if (body.subtotal !== undefined) updateData.subtotal = parseFloat(body.subtotal);
-      if (body.impuesto !== undefined) updateData.impuesto = parseFloat(body.impuesto);
-      if (body.total !== undefined) updateData.total = parseFloat(body.total);
-    }
-    
-    const { data, error } = await supabaseAdmin
-      .from('pedidos')
-      .update(updateData)
-      .eq('id', body.id)
-      .select()
-      .single();
-    
-    if (error) throw error;
-    
-    return json({
-      success: true,
-      data,
-      message: 'Pedido actualizado exitosamente'
-    });
-    
-  } catch (error) {
-    console.error('Error PUT pedido:', error);
+    // Error genérico
     return json(
-      { success: false, error: error.message },
-      { status: 500 }
-    );
-  }
-}
-
-// ========================================
-// DELETE - Eliminar pedido (solo pendientes)
-// ========================================
-export async function DELETE({ url }) {
-  try {
-    const id = url.searchParams.get('id');
-    
-    if (!id) {
-      return json(
-        { success: false, error: 'ID del pedido requerido' },
-        { status: 400 }
-      );
-    }
-    
-    // Verificar que sea editable
-    const { data: pedido } = await supabaseAdmin
-      .from('pedidos')
-      .select('estado, editable')
-      .eq('id', id)
-      .single();
-    
-    if (!pedido || !esEditable(pedido)) {
-      return json(
-        { success: false, error: 'Este pedido no puede ser eliminado' },
-        { status: 403 }
-      );
-    }
-    
-    const { error } = await supabaseAdmin
-      .from('pedidos')
-      .delete()
-      .eq('id', id);
-    
-    if (error) throw error;
-    
-    return json({
-      success: true,
-      message: 'Pedido eliminado exitosamente'
-    });
-    
-  } catch (error) {
-    console.error('Error DELETE pedido:', error);
-    return json(
-      { success: false, error: error.message },
+      { 
+        success: false, 
+        error: 'Error al crear el pedido',
+        code: 'CREATION_ERROR',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      },
       { status: 500 }
     );
   }

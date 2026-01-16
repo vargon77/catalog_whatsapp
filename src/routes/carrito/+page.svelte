@@ -1,6 +1,6 @@
 <!-- src/routes/carrito/+page.svelte -->
 <script>
-  import { ShoppingCart, Trash2, ArrowLeft, MessageCircle, CheckCircle2, Loader2 } from 'lucide-svelte';
+  import { ShoppingCart, Trash2, ArrowLeft, MessageCircle, CheckCircle2, Loader2, Package, ClipboardList } from 'lucide-svelte';
   import { carrito, carritoVacio } from '$lib/stores/carritoStore';
   import CartItem from '$lib/components/cart/CartItem.svelte';
   import { generarEnlacePedido } from '$lib/utils/whatsapp';
@@ -57,6 +57,7 @@
   let pedidoCreado = false;
   let errorCreandoPedido = '';
   let pedidoId = null;
+  let numeroPedidoCreado = null;
   
   // Validar formulario
   $: formularioValido = datosCliente.nombre.trim() !== '' && 
@@ -110,7 +111,8 @@
       }
       
       // 2. Pedido creado exitosamente
-      pedidoId = result.data.numero_pedido;
+      pedidoId = result.data.id;
+      numeroPedidoCreado = result.data.numero_pedido;
       pedidoCreado = true;
       
       // 3. Generar y abrir enlace de WhatsApp
@@ -124,11 +126,7 @@
         const url = generarEnlacePedido(pedidoWhatsApp, $carrito, configuracion);
         window.open(url, '_blank');
         
-        // 4. Limpiar carrito después de enviar
-        setTimeout(() => {
-          carrito.limpiarCarrito();
-          goto('/?pedido=success');
-        }, 1500);
+        // NO limpiar carrito inmediatamente, esperar a que vaya a seguimiento
       }, 1000);
       
     } catch (error) {
@@ -136,6 +134,13 @@
       errorCreandoPedido = error.message;
       enviandoPedido = false;
     }
+  }
+  
+  // Función para ir a seguimiento del pedido creado
+  function irASeguimiento() {
+    const whatsapp = datosCliente.whatsapp;
+    carrito.limpiarCarrito();
+    goto(`/carrito/mis-pedidos?whatsapp=${encodeURIComponent(whatsapp)}`);
   }
   
   // Función para limpiar el carrito
@@ -151,53 +156,170 @@
 </svelte:head>
 
 <div class="max-w-6xl mx-auto">
-  <!-- Encabezado -->
+  <!-- ============================================ -->
+  <!-- OPCIÓN 1: HEADER CON BOTÓN DESTACADO (RECOMENDADA) -->
+  <!-- ============================================ -->
   <div class="mb-8">
     <a href="/" class="inline-flex items-center text-primary-600 hover:text-primary-800 mb-4 transition-colors">
       <ArrowLeft class="w-4 h-4 mr-2" />
       Volver al catálogo
     </a>
-    <h1 class="text-3xl font-bold text-gray-800">Mi Carrito</h1>
-    <p class="text-gray-600 mt-2">
-      Revisa tu pedido y envíalo por WhatsApp
-    </p>
+    
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div>
+        <h1 class="text-3xl font-bold text-gray-800 flex items-center gap-3">
+          <ShoppingCart class="w-8 h-8 text-primary-600" />
+          Mi Carrito
+        </h1>
+        <p class="text-gray-600 mt-2">
+          Revisa tu pedido y envíalo por WhatsApp
+        </p>
+      </div>
+      
+      <!-- ✨ BOTÓN MIS PEDIDOS - SIEMPRE VISIBLE -->
+      <a 
+        href="/carrito/mis-pedidos"
+        class="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl hover:from-primary-700 hover:to-primary-800 transition-all shadow-lg shadow-primary-200 font-semibold group"
+      >
+        <ClipboardList class="w-5 h-5 group-hover:scale-110 transition-transform" />
+        <span>Seguir Mis Pedidos</span>
+      </a>
+    </div>
   </div>
   
   {#if pedidoCreado}
-    <!-- Confirmación de pedido -->
-    <div class="bg-white rounded-xl shadow-sm p-8 text-center">
-      <div class="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-        <CheckCircle2 class="w-12 h-12 text-green-600" />
-      </div>
-      <h2 class="text-2xl font-bold text-gray-800 mb-2">¡Pedido Creado!</h2>
-      <p class="text-gray-600 mb-6">
-        Tu pedido <strong>{pedidoId}</strong> ha sido registrado exitosamente.
-        <br>Se está abriendo WhatsApp para que lo envíes...
-      </p>
-      <div class="flex items-center justify-center space-x-2 text-primary-600">
-        <Loader2 class="w-5 h-5 animate-spin" />
-        <span>Redirigiendo a WhatsApp...</span>
+    <!-- ============================================ -->
+    <!-- CONFIRMACIÓN CON BOTÓN DE SEGUIMIENTO -->
+    <!-- ============================================ -->
+    <div class="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl shadow-xl p-8 border-2 border-green-200">
+      <div class="max-w-2xl mx-auto text-center">
+        <div class="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6 animate-bounce-slow">
+          <CheckCircle2 class="w-14 h-14 text-green-600" />
+        </div>
+        
+        <h2 class="text-3xl font-bold text-gray-900 mb-3">¡Pedido Creado Exitosamente! 🎉</h2>
+        
+        <div class="bg-white rounded-xl p-4 mb-6 inline-block">
+          <p class="text-sm text-gray-600 mb-1">Número de Pedido</p>
+          <p class="text-2xl font-bold text-primary-700">#{numeroPedidoCreado}</p>
+        </div>
+        
+        <p class="text-gray-700 mb-8 text-lg">
+          Se está abriendo WhatsApp con tu pedido...
+        </p>
+        
+        <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-6 mb-8">
+          <div class="flex items-start gap-4">
+            <div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+              <ClipboardList class="w-6 h-6 text-blue-600" />
+            </div>
+            <div class="text-left flex-1">
+              <h3 class="font-bold text-blue-900 mb-2 text-lg">📱 Próximos Pasos:</h3>
+              <ol class="text-sm text-blue-800 space-y-2">
+                <li class="flex items-start gap-2">
+                  <span class="font-bold">1.</span>
+                  <span>Envía el mensaje de WhatsApp que se acaba de abrir</span>
+                </li>
+                <li class="flex items-start gap-2">
+                  <span class="font-bold">2.</span>
+                  <span>Ve al seguimiento de pedidos para ver el estado en tiempo real</span>
+                </li>
+                <li class="flex items-start gap-2">
+                  <span class="font-bold">3.</span>
+                  <span>Cuando te lo indiquemos, sube tu comprobante de pago</span>
+                </li>
+              </ol>
+            </div>
+          </div>
+        </div>
+        
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+          <button
+            on:click={irASeguimiento}
+            class="btn-primary flex items-center justify-center gap-2 text-lg px-8 py-4 bg-primary-600 hover:bg-primary-700"
+          >
+            <Package class="w-6 h-6" />
+            Ver Estado de mi Pedido
+          </button>
+          
+          <a
+            href="/"
+            class="btn-secondary flex items-center justify-center gap-2 text-lg px-8 py-4"
+          >
+            <ShoppingCart class="w-6 h-6" />
+            Seguir Comprando
+          </a>
+        </div>
       </div>
     </div>
+    
   {:else if $carritoVacio}
-    <!-- Carrito Vacío -->
-    <div class="text-center py-16 bg-white rounded-xl shadow-sm border-2 border-dashed border-gray-300">
+    <!-- ============================================ -->
+    <!-- CARRITO VACÍO CON CALL-TO-ACTION -->
+    <!-- ============================================ -->
+    <div class="text-center py-16 bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl shadow-lg border-2 border-gray-200">
       <div class="max-w-md mx-auto">
-        <div class="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
-          <ShoppingCart class="w-12 h-12 text-gray-400" />
+        <div class="w-32 h-32 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center mx-auto mb-6">
+          <ShoppingCart class="w-16 h-16 text-gray-400" />
         </div>
-        <h3 class="text-xl font-semibold text-gray-700 mb-2">Tu carrito está vacío</h3>
-        <p class="text-gray-500 mb-6">
+        
+        <h3 class="text-2xl font-bold text-gray-800 mb-3">Tu carrito está vacío</h3>
+        <p class="text-gray-600 mb-8 text-lg">
           Añade productos desde el catálogo para comenzar tu pedido
         </p>
-        <a href="/" class="btn-primary inline-flex items-center">
-          <ShoppingCart class="w-4 h-4 mr-2" />
-          Ver catálogo
-        </a>
+        
+        <!-- ============================================ -->
+        <!-- OPCIÓN 2: CARDS CON ACCIONES -->
+        <!-- ============================================ -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+          <!-- Card: Ir a catálogo -->
+          <a 
+            href="/"
+            class="bg-white rounded-xl p-6 shadow-md hover:shadow-xl transition-all border-2 border-gray-200 hover:border-primary-500 group"
+          >
+            <div class="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform">
+              <ShoppingCart class="w-8 h-8 text-primary-600" />
+            </div>
+            <h4 class="font-bold text-gray-900 mb-2">Ver Catálogo</h4>
+            <p class="text-sm text-gray-600">Explora nuestros productos</p>
+          </a>
+          
+          <!-- Card: Mis Pedidos -->
+          <a 
+            href="/carrito/mis-pedidos"
+            class="bg-gradient-to-br from-primary-50 to-primary-100 rounded-xl p-6 shadow-md hover:shadow-xl transition-all border-2 border-primary-300 hover:border-primary-500 group"
+          >
+            <div class="w-16 h-16 bg-primary-500 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform">
+              <ClipboardList class="w-8 h-8 text-white" />
+            </div>
+            <h4 class="font-bold text-primary-900 mb-2">Mis Pedidos</h4>
+            <p class="text-sm text-primary-700">Consulta el estado de tus compras</p>
+          </a>
+        </div>
+        
+        <!-- Banner informativo -->
+        <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 text-left">
+          <div class="flex items-start gap-3">
+            <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
+              <ClipboardList class="w-4 h-4 text-blue-600" />
+            </div>
+            <div>
+              <h4 class="font-semibold text-blue-900 text-sm mb-1">💡 ¿Ya hiciste un pedido?</h4>
+              <p class="text-xs text-blue-700">
+                Ingresa tu número de WhatsApp en "Mis Pedidos" para ver el estado, subir comprobantes y más.
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
+    
   {:else}
+    <!-- Formulario existente del carrito -->
     <div class="flex flex-col lg:flex-row gap-8">
+      <!-- ... resto del código del carrito ... -->
+      <!-- (Mantén todo el código existente) -->
+      
       <!-- Lista de Productos -->
       <div class="lg:w-2/3 space-y-6">
         <div class="bg-white rounded-xl shadow-sm overflow-hidden">
@@ -268,7 +390,6 @@
                   disabled={enviandoPedido}
                 />
               </div>
-              
             </div>
           </div>
         </div>
@@ -493,3 +614,18 @@
     </div>
   {/if}
 </div>
+
+<style>
+  @keyframes bounce-slow {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+  
+  .animate-bounce-slow {
+    animation: bounce-slow 2s ease-in-out infinite;
+  }
+</style>

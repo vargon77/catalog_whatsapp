@@ -1,14 +1,14 @@
-<!-- src/routes/(admin)/pedidos/+page.svelte-->
+<!-- src/routes/(admin)/pedidos/+page.svelte -->
 <script>
   import { onMount } from 'svelte';
-  import { Bell, Search, Filter as FilterIcon, Eye, MessageCircle, CheckCircle, XCircle,Edit } from 'lucide-svelte';
+  import { Bell, Search, Eye, MessageCircle, CheckCircle, XCircle, Edit } from 'lucide-svelte';
   import { ESTADOS, CONFIG_ESTADOS, obtenerColorEstado } from '$lib/pedidos/estadosCliente';
   import ModalValidarPago from '$lib/components/pedidos/ModalValidarPago.svelte';
   import ModalCancelar from '$lib/components/pedidos/ModalCancelar.svelte';
   import ModalEnviar from '$lib/components/pedidos/ModalEnviar.svelte';
   import ModalDetalles from '$lib/components/pedidos/ModalDetalles.svelte';
-  import BadgePendientes from '$lib/components/pedidos/BadgePendientes.svelte';
   import ModalEditarPedido from '$lib/components/pedidos/ModalEditarPedido.svelte';
+  import BadgePendientes from '$lib/components/pedidos/BadgePendientes.svelte';
   
   let pedidos = [];
   let loading = true;
@@ -63,27 +63,6 @@
     }
   }
   
-  async function cambiarEstadoRapido(pedidoId, nuevoEstado) {
-    try {
-      const res = await fetch('/api/pedidos', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: pedidoId, estado: nuevoEstado })
-      });
-      
-      const result = await res.json();
-      if (!result.success) throw new Error(result.error);
-      
-      await loadPedidos();
-      success = 'Estado actualizado correctamente';
-      setTimeout(() => success = '', 3000);
-      
-    } catch (err) {
-      error = err.message;
-      setTimeout(() => error = '', 3000);
-    }
-  }
-  
   function abrirModalValidarPago(pedido) {
     modalValidarPago = { open: true, pedido };
   }
@@ -97,9 +76,9 @@
   }
   
   function abrirModalEditar(pedido) {
-  modalEditar = { open: true, pedido };
+    modalEditar = { open: true, pedido };
   }
-
+  
   function verDetalles(pedido) {
     modalDetalles = { open: true, pedido };
   }
@@ -291,14 +270,16 @@
                         <CheckCircle class="w-5 h-5" />
                       </button>
                     {/if}
-                    <button
-                      on:click={() => abrirModalEditar(pedido)}
-                      class="p-2 text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100"
-                      title="Editar pedido"
-                      disabled={!pedido.editable}
-                    >
-                      <Edit class="w-5 h-5" />
-                    </button>
+                    
+                    {#if pedido.editable}
+                      <button
+                        on:click={() => abrirModalEditar(pedido)}
+                        class="p-2 text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100"
+                        title="Editar pedido"
+                      >
+                        <Edit class="w-5 h-5" />
+                      </button>
+                    {/if}
                     
                     <button
                       on:click={() => verDetalles(pedido)}
