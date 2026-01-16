@@ -1,5 +1,5 @@
 <!-- src/lib/components/dashboard/DashboardSidebar.svelte -->
-<!-- ✅ Sidebar con módulo de Marcas -->
+<!-- ✅ CORRECCIÓN: Indicador de módulo activo funcional -->
 <script>
   import { 
     LayoutDashboard, 
@@ -23,14 +23,14 @@
   export let mobileOpen = false;
   
   const menuItems = [
-    { icon: LayoutDashboard, label: 'Resumen',  href: '/dashboard' },
-    { icon: Package, label: 'Productos', href: '/productos' },
-    { icon: Tag, label: 'Categorías', href: '/categorias' },
-    { icon: Award, label: 'Marcas', href: '/marcas' },
-    { icon: ShoppingBag, label: 'Pedidos', href: '/pedidos' },
-    { icon: BarChart3, label: 'Reportes', href: '/reportes' },
-    { icon: MessageCircle, label: 'Mensajes', href: '/mensajes' },
-    { icon: Settings, label: 'Configuración', href: '/configuracion' }
+    { icon: LayoutDashboard, label: 'Resumen',  href: '/dashboard', paths: ['/dashboard'] },
+    { icon: Package, label: 'Productos', href: '/productos', paths: ['/productos'] },
+    { icon: Tag, label: 'Categorías', href: '/categorias', paths: ['/categorias'] },
+    { icon: Award, label: 'Marcas', href: '/marcas', paths: ['/marcas'] },
+    { icon: ShoppingBag, label: 'Pedidos', href: '/pedidos', paths: ['/pedidos'] },
+    { icon: BarChart3, label: 'Reportes', href: '/reportes', paths: ['/reportes'] },
+    { icon: MessageCircle, label: 'Mensajes', href: '/mensajes', paths: ['/mensajes'] },
+    { icon: Settings, label: 'Configuración', href: '/configuracion', paths: ['/configuracion'] }
   ];
   
   async function handleLogout() {
@@ -55,11 +55,16 @@
   
   $: currentPath = $page.url.pathname;
   
-  function isActive(href) {
-    if (href === '/dashboard') {
-      return currentPath === href;
+  // ✅ CORRECCIÓN: Función mejorada para detectar módulo activo
+  function isActive(item) {
+    // Coincidencia exacta para dashboard
+    if (item.href === '/dashboard') {
+      return currentPath === '/dashboard';
     }
-    return currentPath.startsWith(href);
+    
+    // Para otros módulos, verificar si la ruta actual comienza con el módulo
+    // Ejemplo: /productos, /productos/nuevo, /productos/123/editar → todos activan "Productos"
+    return currentPath.startsWith(item.href);
   }
 </script>
 
@@ -95,15 +100,20 @@
         <a
           href={item.href}
           class="flex items-center px-3 py-3 rounded-lg transition-colors group relative"
-          class:bg-primary-600={isActive(item.href)}
-          class:text-white={isActive(item.href)}
-          class:hover:bg-gray-800={!isActive(item.href)}
+          class:bg-primary-600={isActive(item)}
+          class:text-white={isActive(item)}
+          class:hover:bg-gray-800={!isActive(item)}
           class:justify-center={collapsed}
           title={collapsed ? item.label : ''}
         >
           <svelte:component this={item.icon} class="w-5 h-5 flex-shrink-0" />
           {#if !collapsed}
             <span class="ml-3 font-medium">{item.label}</span>
+          {/if}
+          
+          <!-- ✅ Indicador visual cuando está activo (modo collapsed) -->
+          {#if collapsed && isActive(item)}
+            <div class="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary-400 rounded-r-full"></div>
           {/if}
           
           <!-- Tooltip para collapsed -->
@@ -194,9 +204,9 @@
               href={item.href}
               on:click={handleNavClick}
               class="flex items-center px-3 py-3 rounded-lg transition-colors"
-              class:bg-primary-600={isActive(item.href)}
-              class:text-white={isActive(item.href)}
-              class:hover:bg-gray-800={!isActive(item.href)}
+              class:bg-primary-600={isActive(item)}
+              class:text-white={isActive(item)}
+              class:hover:bg-gray-800={!isActive(item)}
             >
               <svelte:component this={item.icon} class="w-5 h-5" />
               <span class="ml-3 font-medium">{item.label}</span>

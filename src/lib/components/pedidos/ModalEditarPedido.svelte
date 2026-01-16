@@ -2,7 +2,7 @@
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
   import { 
-    Edit, X, Loader2, Save, Plus, Trash2, 
+    Edit, X, Loader2, Save, Plus, Trash2, Search,
     User, Phone, Mail, MapPin, Package, DollarSign,
     AlertCircle, ShoppingCart
   } from 'lucide-svelte';
@@ -29,6 +29,12 @@
     envio: false,
     items: []
   };
+  
+  // Búsqueda de productos
+  let busquedaProducto = '';
+  let productosEncontrados = [];
+  let buscandoProducto = false;
+  let timeoutBusqueda = null;
   
   onMount(async () => {
     await cargarDatosPedido();
@@ -72,6 +78,67 @@
     }
   }
   
+  async function buscarProductos() {
+    if (!busquedaProducto || busquedaProducto.length < 2) {
+      productosEncontrados = [];
+      return;
+    }
+    
+    buscandoProducto = true;
+    
+    try {
+      const res = await fetch('/api/productos');
+      const productos = await res.json();
+      
+      const busqueda = busquedaProducto.toLowerCase();
+      productosEncontrados = (Array.isArray(productos) ? productos : productos.data || [])
+        .filter(p => 
+          p.nombre.toLowerCase().includes(busqueda) ||
+          (p.sku && p.sku.toLowerCase().includes(busqueda))
+        )
+        .slice(0, 8);
+        
+    } catch (err) {
+      console.error('Error buscando productos:', err);
+    } finally {
+      buscandoProducto = false;
+    }
+  }
+  
+  // Debounce para búsqueda
+  $: if (busquedaProducto) {
+    clearTimeout(timeoutBusqueda);
+    timeoutBusqueda = setTimeout(buscarProductos, 300);
+  }
+  
+  function agregarProducto(producto) {
+    // Verificar si ya existe
+    const existe = formData.items.find(item => item.producto_id === producto.id);
+    if (existe) {
+      existe.cantidad++;
+    } else {
+      formData.items = [...formData.items, {
+        producto_id: producto.id,
+        nombre: producto.nombre,
+        sku: producto.sku,
+        cantidad: 1,
+        precio_unitario: producto.precio,
+        imagen_url: producto.imagen_url
+      }];
+    }
+    
+    busquedaProducto = '';
+    productosEncontrados = [];
+  }
+  
+  function eliminarProducto(index) {
+    if (formData.items.length === 1) {
+      error = 'Debe haber al menos un producto';
+      return;
+    }
+    formData.items = formData.items.filter((_, i) => i !== index);
+  }
+  
   async function guardarCambios() {
     error = '';
     success = '';
@@ -96,11 +163,12 @@
     const itemsInvalidos = formData.items.some(item => 
       !item.nombre.trim() || 
       item.cantidad <= 0 || 
-      item.precio_unitario <= 0
+      item.precio_unitario <= 0 ||
+      !item.producto_id // ✅ CRÍTICO: Validar producto_id
     );
     
     if (itemsInvalidos) {
-      error = 'Todos los productos deben tener nombre, cantidad y precio válidos';
+      error = 'Todos los productos deben tener ID, nombre, cantidad y precio válidos';
       return;
     }
     
@@ -130,30 +198,11 @@
     }
   }
   
-  function agregarProducto() {
-    formData.items = [...formData.items, {
-      producto_id: null,
-      nombre: '',
-      sku: '',
-      cantidad: 1,
-      precio_unitario: 0,
-      imagen_url: null
-    }];
-  }
-  
-  function eliminarProducto(index) {
-    if (formData.items.length === 1) {
-      error = 'Debe haber al menos un producto';
-      return;
-    }
-    formData.items = formData.items.filter((_, i) => i !== index);
-  }
-  
   function formatCurrency(amount) {
     return new Intl.NumberFormat('es-MX', {
       style: 'currency',
       currency: 'MXN'
-    }).format(amount);
+    }).format(amount || 0);
   }
   
   // Cálculos reactivos
@@ -314,18 +363,58 @@
                   <ShoppingCart class="w-4 h-4 text-indigo-600" />
                   Productos ({formData.items.length})
                 </h4>
-                
-                <button
-                  type="button"
-                  on:click={agregarProducto}
-                  disabled={loading}
-                  class="btn-secondary flex items-center gap-2 text-sm"
-                >
-                  <Plus class="w-4 h-4" />
-                  Agregar
-                </button>
               </div>
               
+              <!-- Buscador de productos -->
+              <div class="mb-4 relative">
+                <div class="relative">
+                  <Search class="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    bind:value={busquedaProducto}
+                    placeholder="Buscar producto por nombre o SKU..."
+                    class="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                    disabled={loading}
+                  />
+                </div>
+                
+                <!-- Resultados de búsqueda -->
+                {#if productosEncontrados.length > 0}
+                  <div class="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                    {#each productosEncontrados as producto}
+                      <button
+                        type="button"
+                        on:click={() => agregarProducto(producto)}
+                        class="w-full px-4 py-3 text-left hover:bg-gray-50 border-b border-gray-100 last:border-b-0 flex items-center gap-3"
+                      >
+                        <div class="w-12 h-12 bg-gray-100 rounded overflow-hidden flex-shrink-0">
+                          {#if producto.imagen_url}
+                            <img src={producto.imagen_url} alt={producto.nombre} class="w-full h-full object-cover" />
+                          {:else}
+                            <div class="w-full h-full flex items-center justify-center">
+                              <Package class="w-6 h-6 text-gray-400" />
+                            </div>
+                          {/if}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <p class="text-sm font-medium text-gray-900 truncate">{producto.nombre}</p>
+                          <div class="flex items-center gap-2 mt-1">
+                            <span class="text-xs text-primary-600 font-semibold">
+                              {formatCurrency(producto.precio)}
+                            </span>
+                            {#if producto.sku}
+                              <span class="text-xs text-gray-500">SKU: {producto.sku}</span>
+                            {/if}
+                          </div>
+                        </div>
+                        <Plus class="w-5 h-5 text-indigo-600" />
+                      </button>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
+              
+              <!-- Lista de productos -->
               <div class="space-y-3">
                 {#each formData.items as item, index}
                   <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
@@ -341,6 +430,7 @@
                             placeholder="Ej: Laptop Gamer"
                             class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
                             disabled={loading}
+                            readonly
                           />
                         </div>
                         
@@ -376,7 +466,7 @@
                         
                         <div class="md:col-span-3">
                           <label class="block text-xs font-medium text-gray-700 mb-1">
-                            SKU (opcional)
+                            SKU
                           </label>
                           <input
                             type="text"
@@ -384,6 +474,7 @@
                             placeholder="Código del producto"
                             class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
                             disabled={loading}
+                            readonly
                           />
                         </div>
                         

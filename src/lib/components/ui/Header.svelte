@@ -131,13 +131,6 @@
         >
           <Home class="w-5 h-5" />
         </a>
-        <a 
-            href="/pedidos/editar"
-            class="text-sm text-gray-700 hover:text-primary-600 font-medium flex items-center gap-1"
-          >
-            <Edit class="w-4 h-4" />
-            Ver/Editar Pedidos
-        </a>
         
         <a 
           href="/dashboard"

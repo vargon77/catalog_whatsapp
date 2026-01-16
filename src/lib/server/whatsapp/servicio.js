@@ -1,330 +1,179 @@
 // src/lib/server/whatsapp/servicio.js
-/**
- * Servicio de WhatsApp - Generación de Mensajes Dinámicos
- * Usa las plantillas de la base de datos
- */
+import { ESTADOS } from '$lib/pedidos/estadosCliente';
 
-import { supabaseAdmin } from '$lib/supabaseServer';
+export async function enviarMensajeWhatsApp(pedido, tipo, config, metadata = {}) {
+  const telefono = config.whatsapp_negocio || config.whatsapp || '';
+  const nombreNegocio = config.nombre_negocio || 'CatálogoExpress';
 
-/**
- * Obtener plantilla por nombre
- */
-export async function obtenerPlantilla(nombre) {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('mensajes_plantillas')
-      .select('*')
-      .eq('nombre', nombre)
-      .eq('activo', true)
-      .single();
-    
-    if (error) throw error;
-    return data;
-    
-  } catch (error) {
-    console.error('Error obteniendo plantilla:', error);
-    return null;
+  const mensajes = {
+    pedido_recibido: generarMensajePedidoRecibido,
+    pedido_confirmado: generarMensajePedidoConfirmado,
+    pago_validado: generarMensajePagoValidado,
+    pago_rechazado: generarMensajePagoRechazado,
+    pedido_preparando: generarMensajePedidoPreparando,
+    pedido_enviado: generarMensajePedidoEnviado,
+    pedido_recibido_confirmacion: generarMensajeRecibidoConfirmacion,
+    pedido_cancelado: generarMensajePedidoCancelado,
+    recordatorio_pago: generarMensajeRecordatorioPago
+  };
+
+  const generador = mensajes[tipo];
+  if (!generador) {
+    throw new Error(`Tipo de mensaje no soportado: ${tipo}`);
   }
+
+  const mensaje = generador(pedido, nombreNegocio, metadata);
+  const url = `https://wa.me/${telefono}?text=${encodeURIComponent(mensaje)}`;
+
+  return { mensaje, url };
 }
 
-/**
- * Reemplazar variables en plantilla
- */
-export function reemplazarVariables(texto, variables) {
-  let resultado = texto;
-  
-  Object.keys(variables).forEach(key => {
-    const valor = variables[key] || '';
-    const regex = new RegExp(`{{${key}}}`, 'g');
-    resultado = resultado.replace(regex, valor);
-  });
-  
-  return resultado;
+function generarMensajePedidoRecibido(pedido, nombreNegocio) {
+  return `🎉 *¡Pedido Recibido!*
+
+Hola ${pedido.cliente_nombre},
+
+Tu pedido #${pedido.numero_pedido} ha sido recibido correctamente.
+
+📦 *Resumen:*
+${pedido.items?.map(item => `• ${item.cantidad}x ${item.producto_nombre}`).join('\n') || ''}
+
+💰 *Total:* $${pedido.total.toFixed(2)}
+
+En breve revisaremos tu pedido y te confirmaremos los detalles.
+
+Gracias por tu compra en ${nombreNegocio} 🙏`;
 }
 
-/**
- * Generar mensaje de pedido recibido
- */
-export async function generarMensajePedidoRecibido(pedido, configuracion) {
-  const plantilla = await obtenerPlantilla('Pedido Recibido');
-  if (!plantilla) return null;
-  
-  // Generar lista de productos
-  const listaProductos = pedido.items
-    .map((item, index) => `${index + 1}. ${item.producto_nombre} x${item.cantidad} - $${item.subtotal.toFixed(2)}`)
-    .join('\n');
-  
-  const variables = {
-    cliente_nombre: pedido.cliente_nombre,
-    numero_pedido: pedido.numero_pedido,
-    fecha: new Date(pedido.created_at).toLocaleDateString('es-MX'),
-    total: pedido.total.toFixed(2),
-    lista_productos: listaProductos,
-    nombre_empresa: configuracion.nombre_empresa
-  };
-  
-  return {
-    mensaje: reemplazarVariables(plantilla.texto, variables),
-    telefono: pedido.cliente_whatsapp
-  };
+function generarMensajePedidoConfirmado(pedido, nombreNegocio) {
+  return `✅ *Pedido Confirmado*
+
+Hola ${pedido.cliente_nombre},
+
+Tu pedido #${pedido.numero_pedido} ha sido confirmado.
+
+💰 *Total a pagar:* $${pedido.total.toFixed(2)}
+${pedido.costo_envio > 0 ? `📦 *Envío:* $${pedido.costo_envio.toFixed(2)}` : ''}
+
+Por favor, realiza el pago y envíanos tu comprobante para procesar tu pedido.
+
+${nombreNegocio}`;
 }
 
-/**
- * Generar mensaje de pedido confirmado con datos de pago
- */
-export async function generarMensajePedidoConfirmado(pedido, configuracion) {
-  const plantilla = await obtenerPlantilla('Pedido Confirmado - Datos de Pago');
-  if (!plantilla) return null;
-  
-  // Parsear cuentas de pago
-  const cuentasPago = typeof configuracion.cuentas_pago === 'string' 
-    ? JSON.parse(configuracion.cuentas_pago) 
-    : configuracion.cuentas_pago;
-  
-  // Obtener cuenta activa (primera disponible)
-  const cuenta = cuentasPago?.find(c => c.activo) || cuentasPago?.[0];
-  
-  if (!cuenta) {
-    console.error('No hay cuentas de pago configuradas');
-    return null;
+function generarMensajePagoValidado(pedido, nombreNegocio) {
+  return `💳 *¡Pago Validado!*
+
+Hola ${pedido.cliente_nombre},
+
+Tu pago del pedido #${pedido.numero_pedido} ha sido validado exitosamente.
+
+✅ Total pagado: $${pedido.total.toFixed(2)}
+
+Estamos preparando tu pedido para el envío. Te notificaremos cuando esté en camino.
+
+${nombreNegocio} 🚀`;
+}
+
+function generarMensajePagoRechazado(pedido, nombreNegocio, metadata) {
+  return `❌ *Comprobante de Pago Rechazado*
+
+Hola ${pedido.cliente_nombre},
+
+Lamentablemente, el comprobante del pedido #${pedido.numero_pedido} no pudo ser validado.
+
+⚠️ *Motivo:* ${metadata.motivo || 'No especificado'}
+
+Por favor:
+1. Verifica los datos de la transferencia
+2. Sube un nuevo comprobante claro y legible
+3. Puedes editar tu pedido si es necesario
+
+Tu pedido sigue disponible para corrección.
+
+${nombreNegocio}`;
+}
+
+function generarMensajePedidoPreparando(pedido, nombreNegocio) {
+  return `📦 *Preparando tu Pedido*
+
+Hola ${pedido.cliente_nombre},
+
+Tu pedido #${pedido.numero_pedido} está siendo preparado.
+
+⏱️ Tiempo estimado: 24-48 horas
+
+Te notificaremos cuando esté listo para envío.
+
+${nombreNegocio}`;
+}
+
+function generarMensajePedidoEnviado(pedido, nombreNegocio, metadata) {
+  let mensaje = `🚚 *¡Pedido Enviado!*
+
+Hola ${pedido.cliente_nombre},
+
+Tu pedido #${pedido.numero_pedido} está en camino.`;
+
+  if (metadata.guia_envio) {
+    mensaje += `\n\n📋 *Guía de rastreo:* ${metadata.guia_envio}`;
   }
-  
-  // Generar detalle de costos
-  let detalleCostos = '';
-  if (pedido.impuesto > 0) {
-    detalleCostos += `\n📦 Subtotal: $${pedido.subtotal.toFixed(2)}`;
-    detalleCostos += `\n📋 IVA: $${pedido.impuesto.toFixed(2)}`;
+
+  if (metadata.transportadora) {
+    mensaje += `\n🚛 *Transportadora:* ${metadata.transportadora}`;
   }
-  if (pedido.costo_envio > 0) {
-    detalleCostos += `\n🚚 Envío: $${pedido.costo_envio.toFixed(2)}`;
-  }
-  
-  const variables = {
-    cliente_nombre: pedido.cliente_nombre,
-    numero_pedido: pedido.numero_pedido,
-    total: pedido.total.toFixed(2),
-    detalle_costos: detalleCostos,
-    metodo_pago: pedido.metodo_pago === 'transferencia' ? 'Transferencia Bancaria' : 'Depósito en Efectivo',
-    banco: cuenta.banco,
-    titular: cuenta.titular,
-    tipo_cuenta: cuenta.tipo_cuenta,
-    numero_cuenta: cuenta.numero_cuenta,
-    clabe: cuenta.clabe,
-    nombre_empresa: configuracion.nombre_empresa
-  };
-  
-  return {
-    mensaje: reemplazarVariables(plantilla.texto, variables),
-    telefono: pedido.cliente_whatsapp
-  };
+
+  mensaje += `\n\n⏱️ Tiempo estimado de entrega: 3-5 días hábiles`;
+  mensaje += `\n\nPor favor, confirma cuando lo recibas.`;
+  mensaje += `\n\n${nombreNegocio}`;
+
+  return mensaje;
 }
 
-/**
- * Generar mensaje de comprobante recibido
- */
-export async function generarMensajeComprobanteRecibido(pedido, configuracion) {
-  const plantilla = await obtenerPlantilla('Comprobante Recibido');
-  if (!plantilla) return null;
-  
-  const variables = {
-    cliente_nombre: pedido.cliente_nombre,
-    numero_pedido: pedido.numero_pedido,
-    nombre_empresa: configuracion.nombre_empresa
-  };
-  
-  return {
-    mensaje: reemplazarVariables(plantilla.texto, variables),
-    telefono: pedido.cliente_whatsapp
-  };
+function generarMensajeRecibidoConfirmacion(pedido, nombreNegocio, metadata) {
+  return `✅ *Recepción Confirmada*
+
+Hola ${pedido.cliente_nombre},
+
+Gracias por confirmar que recibiste tu pedido #${pedido.numero_pedido}.
+
+${metadata.calificacion ? `⭐ Calificación: ${metadata.calificacion}/5` : ''}
+
+🕐 Tu pedido se marcará como entregado automáticamente en 24 horas.
+
+¡Esperamos verte pronto!
+
+${nombreNegocio}`;
 }
 
-/**
- * Generar mensaje de pago validado
- */
-export async function generarMensajePagoValidado(pedido, configuracion) {
-  const plantilla = await obtenerPlantilla('Pago Validado');
-  if (!plantilla) return null;
-  
-  const variables = {
-    cliente_nombre: pedido.cliente_nombre,
-    numero_pedido: pedido.numero_pedido,
-    total: pedido.total.toFixed(2),
-    nombre_empresa: configuracion.nombre_empresa
-  };
-  
-  return {
-    mensaje: reemplazarVariables(plantilla.texto, variables),
-    telefono: pedido.cliente_whatsapp
-  };
+function generarMensajePedidoCancelado(pedido, nombreNegocio, metadata) {
+  return `🚫 *Pedido Cancelado*
+
+Hola ${pedido.cliente_nombre},
+
+Tu pedido #${pedido.numero_pedido} ha sido cancelado.
+
+${metadata.motivo ? `📝 *Motivo:* ${metadata.motivo}` : ''}
+
+Si tienes alguna duda, estamos para ayudarte.
+
+${nombreNegocio}`;
 }
 
-/**
- * Generar mensaje de pago rechazado
- */
-export async function generarMensajePagoRechazado(pedido, motivo, configuracion) {
-  const plantilla = await obtenerPlantilla('Pago Rechazado');
-  if (!plantilla) return null;
+function generarMensajeRecordatorioPago(pedido, nombreNegocio, metadata) {
+  const diasPendiente = metadata.dias_pendiente || 1;
   
-  const variables = {
-    cliente_nombre: pedido.cliente_nombre,
-    numero_pedido: pedido.numero_pedido,
-    motivo_rechazo: motivo,
-    total: pedido.total.toFixed(2),
-    nombre_empresa: configuracion.nombre_empresa
-  };
-  
-  return {
-    mensaje: reemplazarVariables(plantilla.texto, variables),
-    telefono: pedido.cliente_whatsapp
-  };
-}
+  return `⏰ *Recordatorio de Pago*
 
-/**
- * Generar mensaje de pedido enviado
- */
-export async function generarMensajePedidoEnviado(pedido, configuracion) {
-  const plantilla = await obtenerPlantilla('Pedido Enviado');
-  if (!plantilla) return null;
-  
-  // Generar info de guía
-  let infoGuia = '';
-  let rastreoLink = '';
-  
-  if (pedido.guia_envio) {
-    infoGuia = `📦 *Paquetería:* ${pedido.guia_envio.paqueteria}`;
-    
-    if (pedido.guia_envio.numero) {
-      infoGuia += `\n🔢 *Guía:* ${pedido.guia_envio.numero}`;
-    }
-    
-    if (pedido.guia_envio.url_rastreo) {
-      rastreoLink = `\n🔍 *Rastrear:* ${pedido.guia_envio.url_rastreo}`;
-    }
-  } else {
-    infoGuia = '📦 Envío local - Sin guía de rastreo';
-  }
-  
-  const fechaEstimada = pedido.guia_envio?.fecha_estimada 
-    ? new Date(pedido.guia_envio.fecha_estimada).toLocaleDateString('es-MX', { 
-        weekday: 'long', 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric' 
-      })
-    : '2-3 días hábiles';
-  
-  const variables = {
-    cliente_nombre: pedido.cliente_nombre,
-    numero_pedido: pedido.numero_pedido,
-    info_guia: infoGuia,
-    direccion_entrega: pedido.cliente_direccion || 'Dirección registrada',
-    fecha_estimada: fechaEstimada,
-    rastreo_link: rastreoLink,
-    nombre_empresa: configuracion.nombre_empresa
-  };
-  
-  return {
-    mensaje: reemplazarVariables(plantilla.texto, variables),
-    telefono: pedido.cliente_whatsapp
-  };
-}
+Hola ${pedido.cliente_nombre},
 
-/**
- * Generar mensaje de pedido recibido
- */
-export async function generarMensajePedidoRecibido(pedido, configuracion) {
-  const plantilla = await obtenerPlantilla('Pedido Recibido');
-  if (!plantilla) return null;
-  
-  const variables = {
-    cliente_nombre: pedido.cliente_nombre,
-    numero_pedido: pedido.numero_pedido,
-    nombre_empresa: configuracion.nombre_empresa
-  };
-  
-  return {
-    mensaje: reemplazarVariables(plantilla.texto, variables),
-    telefono: pedido.cliente_whatsapp
-  };
-}
+Tu pedido #${pedido.numero_pedido} está esperando el pago.
 
-/**
- * Generar mensaje de pedido cancelado
- */
-export async function generarMensajePedidoCancelado(pedido, configuracion) {
-  const plantilla = await obtenerPlantilla('Pedido Cancelado');
-  if (!plantilla) return null;
-  
-  // Info de reembolso solo si ya estaba pagado
-  const infoReembolso = pedido.estado_pago === 'pagado'
-    ? '\n💰 *Reembolso:* Te contactaremos para procesar la devolución de tu pago.'
-    : '';
-  
-  const variables = {
-    cliente_nombre: pedido.cliente_nombre,
-    numero_pedido: pedido.numero_pedido,
-    motivo_cancelacion: pedido.motivo_cancelacion || 'No especificado',
-    info_reembolso: infoReembolso,
-    nombre_empresa: configuracion.nombre_empresa
-  };
-  
-  return {
-    mensaje: reemplazarVariables(plantilla.texto, variables),
-    telefono: pedido.cliente_whatsapp
-  };
-}
+💰 *Total:* $${pedido.total.toFixed(2)}
+⏱️ *Tiempo pendiente:* ${diasPendiente} día${diasPendiente > 1 ? 's' : ''}
 
-/**
- * Generar URL de WhatsApp con mensaje
- */
-export function generarURLWhatsApp(telefono, mensaje) {
-  const telefonoLimpio = telefono.replace(/\D/g, '');
-  const mensajeCodificado = encodeURIComponent(mensaje);
-  
-  return `https://wa.me/${telefonoLimpio}?text=${mensajeCodificado}`;
-}
+Por favor, realiza el pago y envíanos tu comprobante para procesar tu pedido.
 
-/**
- * Helper: Enviar mensaje de WhatsApp (abre URL en nueva pestaña)
- */
-export async function enviarMensajeWhatsApp(pedido, tipoMensaje, configuracion, datosAdicionales = {}) {
-  let resultado = null;
-  
-  switch (tipoMensaje) {
-    case 'pedido_recibido':
-      resultado = await generarMensajePedidoRecibido(pedido, configuracion);
-      break;
-    case 'pedido_confirmado':
-      resultado = await generarMensajePedidoConfirmado(pedido, configuracion);
-      break;
-    case 'comprobante_recibido':
-      resultado = await generarMensajeComprobanteRecibido(pedido, configuracion);
-      break;
-    case 'pago_validado':
-      resultado = await generarMensajePagoValidado(pedido, configuracion);
-      break;
-    case 'pago_rechazado':
-      resultado = await generarMensajePagoRechazado(pedido, datosAdicionales.motivo, configuracion);
-      break;
-    case 'pedido_enviado':
-      resultado = await generarMensajePedidoEnviado(pedido, configuracion);
-      break;
-    case 'pedido_recibido':
-      resultado = await generarMensajePedidoRecibido(pedido, configuracion);
-      break;
-    case 'pedido_cancelado':
-      resultado = await generarMensajePedidoCancelado(pedido, configuracion);
-      break;
-    default:
-      console.error('Tipo de mensaje no reconocido:', tipoMensaje);
-      return null;
-  }
-  
-  if (!resultado) return null;
-  
-  return {
-    url: generarURLWhatsApp(resultado.telefono, resultado.mensaje),
-    mensaje: resultado.mensaje,
-    telefono: resultado.telefono
-  };
+Si ya pagaste, ignora este mensaje.
+
+${nombreNegocio}`;
 }

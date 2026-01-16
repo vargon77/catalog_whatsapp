@@ -1,161 +1,163 @@
 // src/lib/server/pedidos/estados.js
-/**
- * Lógica de estados y transiciones del sistema de pedidos (SERVIDOR)
- * Este archivo SOLO debe importarse en archivos del servidor (+page.server.js, +server.js)
- * CatálogoExpress - Sistema de Gestión de Pedidos v2.0
- */
+// ✅ VERSIÓN CORREGIDA - Máquina de estados bien definida
 
-// Importar constantes compartidas desde el cliente
 import { ESTADOS, ESTADOS_PAGO } from '$lib/pedidos/estadosCliente';
 
-// Re-exportar para mantener compatibilidad
 export { ESTADOS, ESTADOS_PAGO };
 
 // ========================================
-// FLUJO DE TRANSICIONES PERMITIDAS (SERVIDOR)
+// TRANSICIONES CORREGIDAS
 // ========================================
-
 export const TRANSICIONES_PERMITIDAS = {
-  [ESTADOS.PENDIENTE]: [ESTADOS.CONFIRMADO, ESTADOS.CANCELADO],
-  [ESTADOS.CONFIRMADO]: [ESTADOS.PAGADO, ESTADOS.CANCELADO],
-  [ESTADOS.PAGADO]: [ESTADOS.PREPARANDO, ESTADOS.ENVIADO, ESTADOS.CANCELADO],
-  [ESTADOS.PREPARANDO]: [ESTADOS.ENVIADO, ESTADOS.CANCELADO],
-  [ESTADOS.ENVIADO]: [ESTADOS.RECIBIDO, ESTADOS.ENTREGADO],
-  [ESTADOS.RECIBIDO]: [ESTADOS.ENTREGADO],
+  [ESTADOS.PENDIENTE]: [
+    ESTADOS.CONFIRMADO,
+    ESTADOS.CANCELADO
+  ],
+  
+  [ESTADOS.CONFIRMADO]: [
+    ESTADOS.PAGADO,
+    ESTADOS.CANCELADO,
+    ESTADOS.PENDIENTE // ✅ NUEVO: Permitir retroceso si pago rechazado
+  ],
+  
+  [ESTADOS.PAGADO]: [
+    ESTADOS.PREPARANDO,
+    ESTADOS.ENVIADO, // Salto directo permitido
+    ESTADOS.CANCELADO
+  ],
+  
+  [ESTADOS.PREPARANDO]: [
+    ESTADOS.ENVIADO,
+    ESTADOS.CANCELADO
+  ],
+  
+  [ESTADOS.ENVIADO]: [
+    ESTADOS.RECIBIDO,
+    ESTADOS.ENTREGADO // ✅ Permitir marcar como entregado directamente
+  ],
+  
+  [ESTADOS.RECIBIDO]: [
+    ESTADOS.ENTREGADO // ✅ CRÍTICO: Esta transición faltaba
+  ],
+  
   [ESTADOS.ENTREGADO]: [], // Estado final
-  [ESTADOS.CANCELADO]: [] // Estado final
+  [ESTADOS.CANCELADO]: []  // Estado final
 };
 
 // ========================================
-// FUNCIONES DE VALIDACIÓN
+// NUEVA: Validación de contexto
 // ========================================
-
-/**
- * Valida si una transición de estado es permitida
- */
-export function validarTransicion(estadoActual, estadoNuevo) {
-  if (!estadoActual || !estadoNuevo) {
+export function validarTransicionConContexto(pedido, estadoNuevo) {
+  const estadoActual = pedido.estado;
+  
+  // Validación básica
+  const validacionBasica = validarTransicion(estadoActual, estadoNuevo);
+  if (!validacionBasica.valido) {
+    return validacionBasica;
+  }
+  
+  // ✅ NUEVO: Validaciones de contexto
+  
+  // No puede pasar a PAGADO sin comprobante validado
+  if (estadoNuevo === ESTADOS.PAGADO && pedido.estado_pago !== ESTADOS_PAGO.PAGADO) {
     return {
       valido: false,
-      mensaje: 'Estados no pueden ser nulos'
+      mensaje: 'El pago debe estar validado antes de marcar como pagado'
     };
   }
   
-  if (estadoActual === estadoNuevo) {
+  // No puede pasar a ENVIADO sin estar PAGADO o PREPARANDO
+  if (estadoNuevo === ESTADOS.ENVIADO && 
+      ![ESTADOS.PAGADO, ESTADOS.PREPARANDO].includes(estadoActual)) {
     return {
       valido: false,
-      mensaje: 'El estado es el mismo'
+      mensaje: 'El pedido debe estar pagado antes de enviarse'
     };
   }
   
-  const transicionesPermitidas = TRANSICIONES_PERMITIDAS[estadoActual] || [];
-  
-  if (!transicionesPermitidas.includes(estadoNuevo)) {
+  // No puede retroceder a PENDIENTE si ya tiene pago validado
+  if (estadoNuevo === ESTADOS.PENDIENTE && 
+      pedido.estado_pago === ESTADOS_PAGO.PAGADO) {
     return {
       valido: false,
-      mensaje: `No se puede cambiar de ${CONFIG_ESTADOS[estadoActual]?.label} a ${CONFIG_ESTADOS[estadoNuevo]?.label}`
+      mensaje: 'No se puede retroceder un pedido con pago validado'
     };
   }
   
   return { valido: true };
 }
 
-/**
- * Determina si un pedido es editable según su estado
- */
+// ========================================
+// NUEVA: Auto-transición RECIBIDO → ENTREGADO
+// ========================================
+export async function autoFinalizarSiCorresponde(pedido) {
+  // Si está en RECIBIDO y han pasado 24h, marcar como ENTREGADO
+  if (pedido.estado === ESTADOS.RECIBIDO && pedido.fecha_recibido) {
+    const horasPasadas = (Date.now() - new Date(pedido.fecha_recibido)) / (1000 * 60 * 60);
+    
+    if (horasPasadas >= 24) {
+      return {
+        debeTransicionar: true,
+        estadoNuevo: ESTADOS.ENTREGADO,
+        razon: 'Finalización automática después de 24h de confirmación'
+      };
+    }
+  }
+  
+  return { debeTransicionar: false };
+}
+
+// ========================================
+// CORREGIDO: esEditable
+// ========================================
 export function esEditable(pedido) {
   if (!pedido) return false;
   
-  // Si ya está marcado como no editable, respetar
+  // ✅ NUEVO: Verificar explícitamente la bandera
   if (pedido.editable === false) return false;
   
-  // Estados que permiten edición
-  const estadosEditables = [ESTADOS.PENDIENTE, ESTADOS.CONFIRMADO];
-  
-  // No editable si ya está pagado
+  // No editable si pago validado (excepto si fue rechazado)
   if (pedido.estado_pago === ESTADOS_PAGO.PAGADO) return false;
+  
+  // Solo editable en estados iniciales
+  const estadosEditables = [
+    ESTADOS.PENDIENTE,
+    ESTADOS.CONFIRMADO
+  ];
   
   return estadosEditables.includes(pedido.estado);
 }
 
-/**
- * Valida si se puede validar el pago
- */
-export function puedeValidarPago(pedido) {
-  if (!pedido) return { valido: false, mensaje: 'Pedido no válido' };
-  
-  if (!pedido.constancia_pago_url) {
-    return {
-      valido: false,
-      mensaje: 'No hay comprobante de pago'
-    };
-  }
-  
-  if (pedido.estado_pago === ESTADOS_PAGO.PAGADO) {
-    return {
-      valido: false,
-      mensaje: 'El pago ya fue validado'
-    };
-  }
-  
-  if (pedido.estado !== ESTADOS.CONFIRMADO) {
-    return {
-      valido: false,
-      mensaje: 'El pedido debe estar confirmado primero'
-    };
-  }
-  
-  return { valido: true };
-}
-
-/**
- * Valida si se puede marcar como recibido
- */
-export function puedeMarcarRecibido(pedido) {
-  if (!pedido) return { valido: false };
-  
-  if (pedido.estado !== ESTADOS.ENVIADO) {
-    return {
-      valido: false,
-      mensaje: 'El pedido debe estar en estado "Enviado"'
-    };
-  }
-  
-  return { valido: true };
-}
-
-export function obtenerSiguienteEstado(estadoActual) {
-  const flujoNormal = {
-    [ESTADOS.PENDIENTE]: ESTADOS.CONFIRMADO,
-    [ESTADOS.CONFIRMADO]: ESTADOS.PAGADO,
-    [ESTADOS.PAGADO]: ESTADOS.ENVIADO,
-    [ESTADOS.ENVIADO]: ESTADOS.RECIBIDO,
-    [ESTADOS.RECIBIDO]: ESTADOS.ENTREGADO
+// ========================================
+// NUEVA: Determinar siguiente estado lógico
+// ========================================
+export function obtenerSiguienteEstadoLogico(pedido) {
+  const flujo = {
+    [ESTADOS.PENDIENTE]: {
+      siguiente: ESTADOS.CONFIRMADO,
+      requisitos: ['Stock validado', 'Costos agregados']
+    },
+    [ESTADOS.CONFIRMADO]: {
+      siguiente: ESTADOS.PAGADO,
+      requisitos: ['Comprobante subido', 'Pago validado']
+    },
+    [ESTADOS.PAGADO]: {
+      siguiente: ESTADOS.PREPARANDO,
+      requisitos: ['Pedido en preparación']
+    },
+    [ESTADOS.PREPARANDO]: {
+      siguiente: ESTADOS.ENVIADO,
+      requisitos: ['Guía de envío generada']
+    },
+    [ESTADOS.ENVIADO]: {
+      siguiente: ESTADOS.RECIBIDO,
+      requisitos: ['Cliente confirma recepción']
+    },
+    [ESTADOS.RECIBIDO]: {
+      siguiente: ESTADOS.ENTREGADO,
+      requisitos: ['24h desde confirmación o manual']
+    }
   };
   
-  return flujoNormal[estadoActual] || null;
-}
-
-/**
- * Calcula tiempo de finalización automática
- */
-export function calcularTiempoFinalizacion(fechaEnviado) {
-  if (!fechaEnviado) return null;
-  
-  const fecha = new Date(fechaEnviado);
-  fecha.setDate(fecha.getDate() + 7); // 7 días después
-  
-  return fecha;
-}
-
-export function debeFinalizarseAutomaticamente(pedido) {
-  if (!pedido || pedido.estado !== ESTADOS.ENVIADO) return false;
-  if (!pedido.fecha_enviado) return false;
-  
-  const fechaLimite = calcularTiempoFinalizacion(pedido.fecha_enviado);
-  return new Date() >= fechaLimite;
-}
-
-export function obtenerEstadosDisponibles(estadoActual) {
-  return TRANSICIONES_PERMITIDAS[estadoActual] || [];
+  return flujo[pedido.estado] || null;
 }

@@ -3,13 +3,15 @@
   import { createEventDispatcher, onMount } from 'svelte';
   import { 
     X, User, Phone, Mail, MapPin, Package, Calendar,
-    CreditCard, Truck, FileText, Clock, ExternalLink,
-    CheckCircle, XCircle, MessageCircle, Edit
+    CreditCard, Truck, Clock, ExternalLink,
+    MessageCircle, Edit, CheckCircle, XCircle
   } from 'lucide-svelte';
   import { CONFIG_ESTADOS, obtenerColorEstado } from '$lib/pedidos/estadosCliente';
   import TimelineEstados from './TimelineEstados.svelte';
   import MensajePagoGenerator from './MensajePagoGenerator.svelte';
-  import FormularioCostosEnvio from './FormularioCostosEnvio.svelte';
+  import NotasPedido from './NotasPedido.svelte';
+  import SelectorEstado from './SelectorEstado.svelte';
+  import VisorComprobante from './VisorComprobante.svelte';
   
   export let pedido;
   
@@ -18,11 +20,12 @@
   let historial = [];
   let configuracion = null;
   let mostrarMensajePago = false;
-  let mostrarEditarCostos = false;
+  let estadosPermitidos = [];
   
   onMount(async () => {
     await cargarHistorial();
     await cargarConfiguracion();
+    await cargarEstadosPermitidos();
   });
   
   async function cargarHistorial() {
@@ -46,6 +49,19 @@
       }
     } catch (err) {
       console.error('Error cargando configuración:', err);
+    }
+  }
+  
+  async function cargarEstadosPermitidos() {
+    try {
+      const res = await fetch(`/api/pedidos/${pedido.id}/estados-disponibles`);
+      const result = await res.json();
+      if (result.success) {
+        estadosPermitidos = result.data || [];
+      }
+    } catch (err) {
+      // Si el endpoint no existe aún, usar valores por defecto
+      estadosPermitidos = [];
     }
   }
   
@@ -73,9 +89,12 @@
     window.open(url, '_blank');
   }
   
-  function accionRapida(tipo) {
-    dispatch('accion', { tipo, pedido });
-    dispatch('close');
+  function handleCambioEstado(event) {
+    dispatch('accion', event.detail);
+  }
+  
+  function handleNotasActualizado(event) {
+    pedido = event.detail;
   }
   
   $: colores = obtenerColorEstado(pedido.estado);
@@ -97,7 +116,7 @@
     ></div>
 
     <!-- Modal -->
-    <div class="relative bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+    <div class="relative bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
       <!-- Header Sticky -->
       <div class="px-6 py-4 border-b border-gray-200 bg-white sticky top-0 z-20">
         <div class="flex items-center justify-between">
@@ -226,85 +245,54 @@
             
             <!-- Resumen de Costos -->
             <div class="bg-white border border-gray-200 rounded-lg p-4">
-              <div class="flex items-center justify-between mb-4">
-                <h4 class="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                  <CreditCard class="w-4 h-4" />
-                  Resumen de Pago
-                </h4>
+              <h4 class="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <CreditCard class="w-4 h-4" />
+                Resumen de Pago
+              </h4>
+              
+              <div class="space-y-2">
+                <div class="flex justify-between text-sm">
+                  <span class="text-gray-600">Subtotal:</span>
+                  <span class="font-medium">{formatCurrency(pedido.subtotal || 0)}</span>
+                </div>
                 
-                {#if pedido.estado === 'confirmado' && pedido.editable}
-                  <button
-                    on:click={() => mostrarEditarCostos = !mostrarEditarCostos}
-                    class="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1"
-                  >
-                    <Edit class="w-4 h-4" />
-                    Editar costos
-                  </button>
+                {#if pedido.factura && pedido.impuesto > 0}
+                  <div class="flex justify-between text-sm">
+                    <span class="text-gray-600">IVA (16%):</span>
+                    <span class="font-medium">{formatCurrency(pedido.impuesto || 0)}</span>
+                  </div>
+                {/if}
+                
+                {#if pedido.envio}
+                  <div class="flex justify-between text-sm">
+                    <span class="text-gray-600">Envío:</span>
+                    <span class="font-medium">{formatCurrency(pedido.costo_envio || 0)}</span>
+                  </div>
+                {/if}
+                
+                <div class="border-t border-gray-200 pt-2 mt-2">
+                  <div class="flex justify-between">
+                    <span class="text-base font-semibold text-gray-900">Total:</span>
+                    <span class="text-xl font-bold text-primary-700">
+                      {formatCurrency(pedido.total || 0)}
+                    </span>
+                  </div>
+                </div>
+                
+                {#if pedido.metodo_pago}
+                  <div class="bg-blue-50 rounded-lg p-3 mt-3">
+                    <p class="text-sm text-blue-800">
+                      <span class="font-medium">Método de pago:</span> {pedido.metodo_pago}
+                    </p>
+                  </div>
                 {/if}
               </div>
-              
-              {#if mostrarEditarCostos}
-                <FormularioCostosEnvio 
-                  {pedido} 
-                  on:guardado={() => {
-                    mostrarEditarCostos = false;
-                    dispatch('accion');
-                  }}
-                />
-              {:else}
-                <div class="space-y-2">
-                  <div class="flex justify-between text-sm">
-                    <span class="text-gray-600">Subtotal:</span>
-                    <span class="font-medium">{formatCurrency(pedido.subtotal || 0)}</span>
-                  </div>
-                  
-                  {#if pedido.factura && pedido.impuesto > 0}
-                    <div class="flex justify-between text-sm">
-                      <span class="text-gray-600">IVA (16%):</span>
-                      <span class="font-medium">{formatCurrency(pedido.impuesto || 0)}</span>
-                    </div>
-                  {/if}
-                  
-                  {#if pedido.envio}
-                    <div class="flex justify-between text-sm">
-                      <span class="text-gray-600">Envío:</span>
-                      <span class="font-medium">{formatCurrency(pedido.costo_envio || 0)}</span>
-                    </div>
-                  {/if}
-                  
-                  <div class="border-t border-gray-200 pt-2 mt-2">
-                    <div class="flex justify-between">
-                      <span class="text-base font-semibold text-gray-900">Total:</span>
-                      <span class="text-xl font-bold text-primary-700">
-                        {formatCurrency(pedido.total || 0)}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  {#if pedido.metodo_pago}
-                    <div class="bg-blue-50 rounded-lg p-3 mt-3">
-                      <p class="text-sm text-blue-800">
-                        <span class="font-medium">Método de pago:</span> {pedido.metodo_pago}
-                      </p>
-                    </div>
-                  {/if}
-                </div>
-              {/if}
             </div>
             
             <!-- Comprobante de Pago -->
             {#if pedido.constancia_pago_url}
               <div class="bg-white border border-gray-200 rounded-lg p-4">
-                <h4 class="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <FileText class="w-4 h-4" />
-                  Comprobante de Pago
-                </h4>
-                
-                <img 
-                  src={pedido.constancia_pago_url}
-                  alt="Comprobante"
-                  class="w-full rounded-lg border border-gray-300"
-                />
+                <VisorComprobante comprobante_url={pedido.constancia_pago_url} />
                 
                 {#if pedido.motivo_rechazo_pago}
                   <div class="bg-red-50 border border-red-200 rounded-lg p-3 mt-3">
@@ -362,32 +350,29 @@
               </div>
             {/if}
             
-            <!-- Notas -->
-            {#if pedido.notas || pedido.motivo_cancelacion}
-              <div class="bg-white border border-gray-200 rounded-lg p-4">
-                <h4 class="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <FileText class="w-4 h-4" />
-                  Notas
-                </h4>
-                
-                {#if pedido.notas}
-                  <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-3">
-                    <p class="text-sm text-yellow-800">{pedido.notas}</p>
-                  </div>
-                {/if}
-                
-                {#if pedido.motivo_cancelacion}
-                  <div class="bg-red-50 border border-red-200 rounded-lg p-3">
-                    <p class="text-sm font-medium text-red-800 mb-1">Motivo de cancelación:</p>
-                    <p class="text-sm text-red-700">{pedido.motivo_cancelacion}</p>
-                  </div>
-                {/if}
-              </div>
-            {/if}
+            <!-- Notas Internas -->
+            <div class="bg-white border border-gray-200 rounded-lg p-4">
+              <NotasPedido 
+                bind:pedido={pedido} 
+                editable={pedido.editable}
+                on:actualizado={handleNotasActualizado}
+              />
+            </div>
           </div>
           
           <!-- Columna Lateral -->
           <div class="space-y-6">
+            
+            <!-- Selector de Estado -->
+            {#if estadosPermitidos.length > 0}
+              <div class="bg-white border border-gray-200 rounded-lg p-4">
+                <SelectorEstado 
+                  bind:pedido={pedido}
+                  {estadosPermitidos}
+                  on:cambioEstado={handleCambioEstado}
+                />
+              </div>
+            {/if}
             
             <!-- Información General -->
             <div class="bg-white border border-gray-200 rounded-lg p-4">
