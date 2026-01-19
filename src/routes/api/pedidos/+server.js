@@ -14,6 +14,78 @@ import {
 } from '$lib/server/pedidos/validaciones';
 import { encolarNotificacion } from '$lib/server/notificaciones/cola';
 
+// ✅  GET HANDLER
+export async function GET({ url }) {
+  try {
+    const whatsapp = url.searchParams.get('whatsapp');
+    const estado = url.searchParams.get('estado');
+    const busqueda = url.searchParams.get('busqueda');
+    const validacionPendiente = url.searchParams.get('validacion_pendiente');
+    
+    let query = supabaseAdmin
+      .from('pedidos')
+      .select(`
+        *,
+        items:pedidos_items(*)
+      `)
+      .order('created_at', { ascending: false });
+    
+    // Filtrar por whatsapp del cliente
+    if (whatsapp) {
+      const whatsappLimpio = whatsapp.replace(/\D/g, '');
+      query = query.eq('cliente_whatsapp', whatsappLimpio);
+    }
+    
+    // Filtrar por estado
+    if (estado) {
+      query = query.eq('estado', estado);
+    }
+    
+    // Búsqueda general (número pedido, nombre, whatsapp)
+    if (busqueda) {
+      query = query.or(
+        `numero_pedido.ilike.%${busqueda}%,` +
+        `cliente_nombre.ilike.%${busqueda}%,` +
+        `cliente_whatsapp.ilike.%${busqueda}%`
+      );
+    }
+    
+    // Solo pagos pendientes de validación
+    if (validacionPendiente === 'true') {
+      query = query.eq('esperando_validacion', true);
+    }
+    
+    const { data, error, count } = await query;
+    
+    if (error) throw error;
+    
+    // Contar pendientes de validación
+    const { count: pendientesCount } = await supabaseAdmin
+      .from('pedidos')
+      .select('*', { count: 'exact', head: true })
+      .eq('esperando_validacion', true);
+    
+    return json({
+      success: true,
+      data: data || [],
+      metadata: {
+        total: count,
+        pendientesValidacion: pendientesCount || 0
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error GET /api/pedidos:', error);
+    return json(
+      { 
+        success: false, 
+        error: error.message || 'Error al obtener pedidos'
+      },
+      { status: 500 }
+    );
+  }
+}
+
 // ========================================
 // POST - Crear nuevo pedido (TRANSACCIONAL)
 // ========================================
@@ -183,14 +255,23 @@ export async function POST({ request }) {
     
     const itemsData = body.items.map(item => ({
       pedido_id: pedido.id,
-      producto_id: item.producto_id || item.id || null,
-      producto_nombre: item.nombre.trim(),
+      producto_id: item.producto_id, // ✅ Más claro
+      producto_nombre: item.nombre,
       producto_sku: item.sku?.trim() || null,
       cantidad: parseInt(item.cantidad),
       precio_unitario: parseFloat(item.precio_unitario),
       subtotal: parseFloat(item.precio_unitario) * parseInt(item.cantidad),
       imagen_url: item.imagen_url?.trim() || null
     }));
+    // ✅ VALIDACIÓN CRÍTICA: Verificar que producto_id NO sea NULL
+    const itemsInvalidos = itemsData.some(item => !item.producto_id);
+    if (itemsInvalidos) {
+      console.error('❌ Items sin producto_id:', itemsData);
+      throw new ValidationError(
+        'Todos los productos deben tener un ID válido',
+        'INVALID_PRODUCT_ID'
+      );
+    }
     
     const { data: items, error: errorItems } = await supabaseAdmin
       .from('pedidos_items')

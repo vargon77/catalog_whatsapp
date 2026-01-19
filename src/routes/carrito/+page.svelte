@@ -74,7 +74,7 @@
       // 1. Crear pedido en Supabase
       const pedidoData = {
         items: $carrito.map(item => ({
-          id: item.id,
+          producto_id: item.id,
           nombre: item.nombre,
           sku: item.sku,
           cantidad: item.cantidad,
@@ -114,7 +114,7 @@
       pedidoId = result.data.id;
       numeroPedidoCreado = result.data.numero_pedido;
       pedidoCreado = true;
-      
+      carrito.limpiarCarrito();
       // 3. Generar y abrir enlace de WhatsApp
       setTimeout(() => {
         const pedidoWhatsApp = {
@@ -178,7 +178,7 @@
       
       <!-- ✨ BOTÓN MIS PEDIDOS - SIEMPRE VISIBLE -->
       <a 
-        href="/carrito/mis-pedidos"
+        href="(tenda)/carrito/mis-pedidos"
         class="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl hover:from-primary-700 hover:to-primary-800 transition-all shadow-lg shadow-primary-200 font-semibold group"
       >
         <ClipboardList class="w-5 h-5 group-hover:scale-110 transition-transform" />

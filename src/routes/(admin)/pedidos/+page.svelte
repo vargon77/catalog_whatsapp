@@ -14,6 +14,7 @@
   let loading = true;
   let error = '';
   let success = '';
+   let debugInfo = '';
   let pendientesValidacion = 0;
   
   // Filtros
@@ -38,30 +39,17 @@
   });
   
   async function loadPedidos() {
+    // Solo recargar cuando sea necesario (botón, acción)
+    loading = true;
     try {
-      loading = true;
-      error = '';
-      
-      const params = new URLSearchParams();
-      if (filterEstado) params.append('estado', filterEstado);
-      if (searchTerm) params.append('busqueda', searchTerm);
-      if (mostrarSoloPendientes) params.append('validacion_pendiente', 'true');
-      
-      const res = await fetch(`/api/pedidos?${params.toString()}`);
+      const res = await fetch('/api/pedidos');
       const result = await res.json();
-      
-      if (!result.success) throw new Error(result.error);
-      
       pedidos = result.data || [];
-      pendientesValidacion = result.metadata?.pendientesValidacion || 0;
-      
-    } catch (err) {
-      error = 'Error al cargar los pedidos';
-      console.error(err);
     } finally {
       loading = false;
     }
   }
+  
   
   function abrirModalValidarPago(pedido) {
     modalValidarPago = { open: true, pedido };
@@ -195,6 +183,35 @@
       </button>
     </div>
   </div>
+  <!-- ✅ AGREGAR DEBUG INFO EN EL HTML -->
+<div class="max-w-7xl mx-auto">
+  <div class="mb-6 flex items-center justify-between">
+    <!-- ... tu header existente ... -->
+  </div>
+  
+  <!-- ✅ PANEL DE DEBUG (solo en desarrollo) -->
+  {#if debugInfo}
+    <div class="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
+      <p class="text-sm text-blue-800 font-mono">{debugInfo}</p>
+    </div>
+  {/if}
+  
+  <!-- Mensajes de error -->
+  {#if error}
+    <div class="mb-4 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
+      <p class="font-semibold">Error:</p>
+      <p class="text-sm mt-1">{error}</p>
+      <button 
+        on:click={loadPedidos}
+        class="text-sm underline mt-2"
+      >
+        Reintentar
+      </button>
+    </div>
+  {/if}
+  
+  <!-- ... resto de tu código ... -->
+</div>
 
   {#if loading}
     <div class="flex items-center justify-center py-12">
