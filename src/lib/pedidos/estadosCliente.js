@@ -1,13 +1,9 @@
 // src/lib/pedidos/estadosCliente.js
-/**
- * Constantes y utilidades de estados para el CLIENTE
- * Este archivo SÍ puede usarse en componentes .svelte
- */
+// ✅ VERSIÓN COMPLETA Y CORREGIDA
 
 // ========================================
-// DEFINICIÓN DE ESTADOS (compartido)
+// ESTADOS DEL PEDIDO
 // ========================================
-
 export const ESTADOS = {
   PENDIENTE: 'pendiente',
   CONFIRMADO: 'confirmado',
@@ -19,6 +15,9 @@ export const ESTADOS = {
   CANCELADO: 'cancelado'
 };
 
+// ========================================
+// ESTADOS DE PAGO
+// ========================================
 export const ESTADOS_PAGO = {
   SIN_PAGO: 'sin_pago',
   PENDIENTE_VALIDACION: 'pendiente_validacion',
@@ -27,70 +26,59 @@ export const ESTADOS_PAGO = {
 };
 
 // ========================================
-// CONFIGURACIÓN DE ESTADOS (solo UI)
+// CONFIGURACIÓN UI - ✅ COMPLETA
 // ========================================
-
 export const CONFIG_ESTADOS = {
   [ESTADOS.PENDIENTE]: {
     label: 'Pendiente',
-    descripcion: 'Pedido creado, esperando confirmación',
+    descripcion: 'Pedido recibido, esperando confirmación',
     color: 'yellow',
     bgColor: 'bg-yellow-100',
     textColor: 'text-yellow-800',
     borderColor: 'border-yellow-200',
-    icon: '⏳',
-    responsable: 'cliente',
-    editable: true,
-    requiereValidacion: false
+    icon: '⏳'
   },
+  
   [ESTADOS.CONFIRMADO]: {
     label: 'Confirmado',
-    descripcion: 'Vendedor confirmó stock y agregó costos',
+    descripcion: 'Stock validado, esperando pago',
     color: 'blue',
     bgColor: 'bg-blue-100',
     textColor: 'text-blue-800',
     borderColor: 'border-blue-200',
-    icon: '✓',
-    responsable: 'vendedor',
-    editable: true,
-    requiereValidacion: false,
-    acciones: ['generar_mensaje_pago']
+    icon: '✅'
   },
+  
   [ESTADOS.PAGADO]: {
     label: 'Pagado',
-    descripcion: 'Pago validado, iniciando logística',
+    descripcion: 'Pago validado, preparando envío',
     color: 'green',
     bgColor: 'bg-green-100',
     textColor: 'text-green-800',
     borderColor: 'border-green-200',
-    icon: '💰',
-    responsable: 'vendedor',
-    editable: false,
-    requiereValidacion: true
+    icon: '💳'
   },
+  
   [ESTADOS.PREPARANDO]: {
     label: 'Preparando',
     descripcion: 'Pedido en preparación',
-    color: 'purple',
-    bgColor: 'bg-purple-100',
-    textColor: 'text-purple-800',
-    borderColor: 'border-purple-200',
-    icon: '📦',
-    responsable: 'vendedor',
-    editable: false
-  },
-  [ESTADOS.ENVIADO]: {
-    label: 'Enviado',
-    descripcion: 'Pedido en tránsito',
     color: 'indigo',
     bgColor: 'bg-indigo-100',
     textColor: 'text-indigo-800',
     borderColor: 'border-indigo-200',
-    icon: '🚚',
-    responsable: 'vendedor',
-    editable: false,
-    requiereGuiaEnvio: false
+    icon: '📦'
   },
+  
+  [ESTADOS.ENVIADO]: {
+    label: 'Enviado',
+    descripcion: 'Pedido en tránsito',
+    color: 'purple',
+    bgColor: 'bg-purple-100',
+    textColor: 'text-purple-800',
+    borderColor: 'border-purple-200',
+    icon: '🚚'
+  },
+  
   [ESTADOS.RECIBIDO]: {
     label: 'Recibido',
     descripcion: 'Cliente confirmó recepción',
@@ -98,21 +86,19 @@ export const CONFIG_ESTADOS = {
     bgColor: 'bg-teal-100',
     textColor: 'text-teal-800',
     borderColor: 'border-teal-200',
-    icon: '📬',
-    responsable: 'cliente',
-    editable: false
+    icon: '📬'
   },
+  
   [ESTADOS.ENTREGADO]: {
     label: 'Entregado',
     descripcion: 'Pedido completado',
-    color: 'green',
-    bgColor: 'bg-green-100',
-    textColor: 'text-green-800',
-    borderColor: 'border-green-200',
-    icon: '✅',
-    responsable: 'sistema',
-    editable: false
+    color: 'emerald',
+    bgColor: 'bg-emerald-100',
+    textColor: 'text-emerald-800',
+    borderColor: 'border-emerald-200',
+    icon: '✔️'
   },
+  
   [ESTADOS.CANCELADO]: {
     label: 'Cancelado',
     descripcion: 'Pedido cancelado',
@@ -120,32 +106,68 @@ export const CONFIG_ESTADOS = {
     bgColor: 'bg-red-100',
     textColor: 'text-red-800',
     borderColor: 'border-red-200',
-    icon: '❌',
-    responsable: 'vendedor',
-    editable: false,
-    requiereMotivo: true
+    icon: '❌'
   }
 };
 
 // ========================================
-// HELPERS PARA UI
+// TRANSICIONES PERMITIDAS
 // ========================================
+export const TRANSICIONES_PERMITIDAS = {
+  [ESTADOS.PENDIENTE]: [ESTADOS.CONFIRMADO, ESTADOS.CANCELADO],
+  [ESTADOS.CONFIRMADO]: [ESTADOS.PAGADO, ESTADOS.CANCELADO, ESTADOS.PENDIENTE],
+  [ESTADOS.PAGADO]: [ESTADOS.PREPARANDO, ESTADOS.ENVIADO, ESTADOS.CANCELADO],
+  [ESTADOS.PREPARANDO]: [ESTADOS.ENVIADO, ESTADOS.CANCELADO],
+  [ESTADOS.ENVIADO]: [ESTADOS.RECIBIDO, ESTADOS.ENTREGADO],
+  [ESTADOS.RECIBIDO]: [ESTADOS.ENTREGADO],
+  [ESTADOS.ENTREGADO]: [],
+  [ESTADOS.CANCELADO]: []
+};
 
-/**
- * Obtiene la configuración de un estado
- */
-export function obtenerConfigEstado(estado) {
-  return CONFIG_ESTADOS[estado] || CONFIG_ESTADOS[ESTADOS.PENDIENTE];
+// ========================================
+// VALIDACIONES
+// ========================================
+export function validarTransicion(estadoActual, estadoNuevo) {
+  const permitidas = TRANSICIONES_PERMITIDAS[estadoActual] || [];
+  
+  if (!permitidas.includes(estadoNuevo)) {
+    return {
+      valido: false,
+      mensaje: `No se puede cambiar de ${estadoActual} a ${estadoNuevo}`
+    };
+  }
+  
+  return { valido: true };
 }
 
-/**
- * Obtiene los colores de un estado
- */
+export function esEditable(pedido) {
+  if (!pedido) return false;
+  if (pedido.editable === false) return false;
+  if (pedido.estado_pago === ESTADOS_PAGO.PAGADO) return false;
+  
+  const estadosEditables = [ESTADOS.PENDIENTE, ESTADOS.CONFIRMADO];
+  return estadosEditables.includes(pedido.estado);
+}
+
+// ========================================
+// HELPERS UI
+// ========================================
 export function obtenerColorEstado(estado) {
   const config = CONFIG_ESTADOS[estado];
+  
+  // ✅ DEFENSA: Si no existe config, devolver valores por defecto
+  if (!config) {
+    console.warn(`⚠️ CONFIG_ESTADOS["${estado}"] no existe. Usando valores por defecto.`);
+    return {
+      bg: 'bg-gray-100',
+      text: 'text-gray-800',
+      border: 'border-gray-200'
+    };
+  }
+  
   return {
-    bg: config?.bgColor || 'bg-gray-100',
-    text: config?.textColor || 'text-gray-800',
-    border: config?.borderColor || 'border-gray-200'
+    bg: config.bgColor,
+    text: config.textColor,
+    border: config.borderColor
   };
 }

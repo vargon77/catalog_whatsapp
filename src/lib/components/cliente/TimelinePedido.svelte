@@ -1,9 +1,15 @@
 <!-- src/lib/components/cliente/TimelinePedido.svelte -->
 <script>
   import { CheckCircle, Clock, Package, CreditCard, Truck, Home } from 'lucide-svelte';
-  import { ESTADOS } from '$lib/pedidos/estadosCliente';
+  import { ESTADOS, CONFIG_ESTADOS } from '$lib/pedidos/estadosCliente';
   
   export let pedido;
+  // ✅ MEJOR: Calcular solo cuando pedido.estado cambie
+  $: estadoCancelado = pedido.estado === 'cancelado';
+  $: esEntregado = pedido.estado === 'entregado';
+  
+  // ✅ NO hacer llamadas a API en componentes de UI
+  // Deja que el padre (página) cargue los datos
   
   const pasos = [
     {
@@ -64,12 +70,23 @@
   }
   
   $: estadoCancelado = pedido.estado === ESTADOS.CANCELADO;
+  $: estadoActual = pedido.estado;
+  $: configEstadoActual = CONFIG_ESTADOS[estadoActual] || {
+    label: estadoActual, // Mostrar el string tal cual
+    icon: '📦',
+    descripcion: 'Estado del pedido'
+  };
+  
+  // ✅ Si el pedido está cancelado/entregado pero no tiene timeline
+  $: esCancelado = estadoActual === ESTADOS.CANCELADO;
+  $: esEntregado = estadoActual === ESTADOS.ENTREGADO;
+
 </script>
 
-{#if estadoCancelado}
-  <!-- Vista de cancelación -->
+{#if esCancelado}
+  <!-- Vista simplificada para cancelados sin historial -->
   <div class="bg-red-50 border-2 border-red-200 rounded-xl p-6">
-    <div class="flex items-center gap-4 mb-4">
+    <div class="flex items-center gap-4">
       <div class="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
         <svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
@@ -77,17 +94,37 @@
       </div>
       <div>
         <h4 class="text-lg font-bold text-red-900">Pedido Cancelado</h4>
-        <p class="text-sm text-red-700">Este pedido fue cancelado</p>
+        <p class="text-sm text-red-700">
+          {pedido.motivo_cancelacion || 'Este pedido fue cancelado'}
+        </p>
+        {#if pedido.created_at}
+          <p class="text-xs text-red-600 mt-1">
+            Fecha: {new Date(pedido.created_at).toLocaleDateString('es-MX')}
+          </p>
+        {/if}
       </div>
     </div>
-    
-    {#if pedido.motivo_cancelacion}
-      <div class="bg-red-100 rounded-lg p-4">
-        <p class="text-sm font-medium text-red-900 mb-1">Motivo:</p>
-        <p class="text-sm text-red-800">{pedido.motivo_cancelacion}</p>
-      </div>
-    {/if}
   </div>
+  
+{:else if esEntregado}
+  <!-- Vista simplificada para entregados sin historial -->
+  <div class="bg-green-50 border-2 border-green-200 rounded-xl p-6">
+    <div class="flex items-center gap-4">
+      <div class="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+        <CheckCircle class="w-6 h-6 text-green-600" />
+      </div>
+      <div>
+        <h4 class="text-lg font-bold text-green-900">Pedido Entregado</h4>
+        <p class="text-sm text-green-700">Tu pedido fue completado exitosamente</p>
+        {#if pedido.fecha_entregado || pedido.created_at}
+          <p class="text-xs text-green-600 mt-1">
+            Fecha: {new Date(pedido.fecha_entregado || pedido.created_at).toLocaleDateString('es-MX')}
+          </p>
+        {/if}
+      </div>
+    </div>
+  </div>
+  
 {:else}
   <!-- Timeline normal -->
   <div class="relative">
