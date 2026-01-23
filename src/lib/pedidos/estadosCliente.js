@@ -155,9 +155,9 @@ export function esEditable(pedido) {
 export function obtenerColorEstado(estado) {
   const config = CONFIG_ESTADOS[estado];
   
-  // ✅ DEFENSA: Si no existe config, devolver valores por defecto
+  // ✅ Defensa contra estados undefined
   if (!config) {
-    console.warn(`⚠️ CONFIG_ESTADOS["${estado}"] no existe. Usando valores por defecto.`);
+    console.warn(`⚠️ Estado "${estado}" no tiene configuración`);
     return {
       bg: 'bg-gray-100',
       text: 'text-gray-800',

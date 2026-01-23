@@ -31,6 +31,9 @@
       if (!result.success) throw new Error(result.error);
       
       alert(result.message);
+      
+      // ✅ CORRECCIÓN: Emitir evento de éxito para forzar recarga
+      dispatch('validated', result.data);
       dispatch('close');
       
     } catch (error) {

@@ -1,12 +1,12 @@
 // src/lib/server/pedidos/estados.js
-// ✅ VERSIÓN CORREGIDA - Máquina de estados bien definida
+// ✅ VERSIÓN CORREGIDA - Incluye función faltante
 
 import { ESTADOS, ESTADOS_PAGO } from '$lib/pedidos/estadosCliente';
 
 export { ESTADOS, ESTADOS_PAGO };
 
 // ========================================
-// TRANSICIONES CORREGIDAS
+// TRANSICIONES PERMITIDAS
 // ========================================
 export const TRANSICIONES_PERMITIDAS = {
   [ESTADOS.PENDIENTE]: [
@@ -17,7 +17,7 @@ export const TRANSICIONES_PERMITIDAS = {
   [ESTADOS.CONFIRMADO]: [
     ESTADOS.PAGADO,
     ESTADOS.CANCELADO,
-    ESTADOS.PENDIENTE // ✅ NUEVO: Permitir retroceso si pago rechazado
+    ESTADOS.PENDIENTE // Permitir retroceso si pago rechazado
   ],
   
   [ESTADOS.PAGADO]: [
@@ -33,7 +33,7 @@ export const TRANSICIONES_PERMITIDAS = {
   
   [ESTADOS.ENVIADO]: [
     ESTADOS.RECIBIDO,
-    ESTADOS.ENTREGADO // ✅ Permitir marcar como entregado directamente
+    ESTADOS.ENTREGADO // Permitir marcar como entregado directamente
   ],
   
   [ESTADOS.RECIBIDO]: [
@@ -45,7 +45,23 @@ export const TRANSICIONES_PERMITIDAS = {
 };
 
 // ========================================
-// NUEVA: Validación de contexto
+// ✅ FUNCIÓN FALTANTE: validarTransicion
+// ========================================
+export function validarTransicion(estadoActual, estadoNuevo) {
+  const permitidas = TRANSICIONES_PERMITIDAS[estadoActual] || [];
+  
+  if (!permitidas.includes(estadoNuevo)) {
+    return {
+      valido: false,
+      mensaje: `No se puede cambiar de "${estadoActual}" a "${estadoNuevo}"`
+    };
+  }
+  
+  return { valido: true };
+}
+
+// ========================================
+// VALIDACIÓN CON CONTEXTO
 // ========================================
 export function validarTransicionConContexto(pedido, estadoNuevo) {
   const estadoActual = pedido.estado;
@@ -56,13 +72,19 @@ export function validarTransicionConContexto(pedido, estadoNuevo) {
     return validacionBasica;
   }
   
-  // ✅ NUEVO: Validaciones de contexto
+  // ✅ VALIDACIONES DE CONTEXTO
   
   // No puede pasar a PAGADO sin comprobante validado
-  if (estadoNuevo === ESTADOS.PAGADO && pedido.estado_pago !== ESTADOS_PAGO.PAGADO) {
+  /*if (estadoNuevo === ESTADOS.PAGADO && pedido.estado_pago !== ESTADOS_PAGO.PAGADO) {
     return {
       valido: false,
       mensaje: 'El pago debe estar validado antes de marcar como pagado'
+    };
+  }*/
+  if (estadoNuevo === ESTADOS.PAGADO && !pedido.constancia_pago_url) {
+    return {
+      valido: false,
+      mensaje: 'Debe haber un comprobante de pago para validar'
     };
   }
   
@@ -88,32 +110,12 @@ export function validarTransicionConContexto(pedido, estadoNuevo) {
 }
 
 // ========================================
-// NUEVA: Auto-transición RECIBIDO → ENTREGADO
-// ========================================
-export async function autoFinalizarSiCorresponde(pedido) {
-  // Si está en RECIBIDO y han pasado 24h, marcar como ENTREGADO
-  if (pedido.estado === ESTADOS.RECIBIDO && pedido.fecha_recibido) {
-    const horasPasadas = (Date.now() - new Date(pedido.fecha_recibido)) / (1000 * 60 * 60);
-    
-    if (horasPasadas >= 24) {
-      return {
-        debeTransicionar: true,
-        estadoNuevo: ESTADOS.ENTREGADO,
-        razon: 'Finalización automática después de 24h de confirmación'
-      };
-    }
-  }
-  
-  return { debeTransicionar: false };
-}
-
-// ========================================
-// CORREGIDO: esEditable
+// VERIFICAR SI ES EDITABLE
 // ========================================
 export function esEditable(pedido) {
   if (!pedido) return false;
   
-  // ✅ NUEVO: Verificar explícitamente la bandera
+  // Verificar explícitamente la bandera
   if (pedido.editable === false) return false;
   
   // No editable si pago validado (excepto si fue rechazado)
@@ -129,7 +131,7 @@ export function esEditable(pedido) {
 }
 
 // ========================================
-// NUEVA: Determinar siguiente estado lógico
+// OBTENER SIGUIENTE ESTADO LÓGICO
 // ========================================
 export function obtenerSiguienteEstadoLogico(pedido) {
   const flujo = {
@@ -160,4 +162,24 @@ export function obtenerSiguienteEstadoLogico(pedido) {
   };
   
   return flujo[pedido.estado] || null;
+}
+
+// ========================================
+// AUTO-TRANSICIÓN RECIBIDO → ENTREGADO
+// ========================================
+export async function autoFinalizarSiCorresponde(pedido) {
+  // Si está en RECIBIDO y han pasado 24h, marcar como ENTREGADO
+  if (pedido.estado === ESTADOS.RECIBIDO && pedido.fecha_recibido) {
+    const horasPasadas = (Date.now() - new Date(pedido.fecha_recibido)) / (1000 * 60 * 60);
+    
+    if (horasPasadas >= 24) {
+      return {
+        debeTransicionar: true,
+        estadoNuevo: ESTADOS.ENTREGADO,
+        razon: 'Finalización automática después de 24h de confirmación'
+      };
+    }
+  }
+  
+  return { debeTransicionar: false };
 }

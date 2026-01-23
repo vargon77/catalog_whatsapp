@@ -30,36 +30,36 @@
   }
   
   async function confirmarCambio() {
-    if (!estadoSeleccionado) return;
+  cambiando = true;
+  error = '';
+  
+  try {
+    // ✅ CORRECCIÓN: Usar endpoint específico de cambio de estado
+    const res = await fetch(`/api/pedidos/${pedido.id}/cambiar-estado`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        estado: estadoSeleccionado,
+        notas: `Estado cambiado manualmente`,
+        usuario: 'Admin'
+      })
+    });
     
-    cambiando = true;
-    error = '';
+    const result = await res.json();
     
-    try {
-      const res = await fetch('/api/pedidos', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: pedido.id,
-          estado: estadoSeleccionado
-        })
-      });
-      
-      const result = await res.json();
-      
-      if (!result.success) throw new Error(result.error);
-      
-      dispatch('cambioEstado', result.data);
-      mostrarConfirmacion = false;
-      estadoSeleccionado = null;
-      
-    } catch (err) {
-      error = err.message;
-      setTimeout(() => error = '', 5000);
-    } finally {
-      cambiando = false;
-    }
+    if (!result.success) throw new Error(result.error);
+    
+    dispatch('cambioEstado', result.data);
+    mostrarConfirmacion = false;
+    estadoSeleccionado = null;
+    
+  } catch (err) {
+    error = err.message;
+    setTimeout(() => error = '', 5000);
+  } finally {
+    cambiando = false;
   }
+}
   
   function cancelar() {
     mostrarConfirmacion = false;
