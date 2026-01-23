@@ -1,4 +1,4 @@
-// src/routes/api/pedidos/+server.js (POST method only)
+// src/routes/api/pedidos/+server.js 
 // ✅ VERSIÓN CORREGIDA con transacciones, validaciones y notificaciones
 
 import { json } from '@sveltejs/kit';
@@ -407,6 +407,55 @@ export async function POST({ request }) {
         code: 'CREATION_ERROR',
         details: process.env.NODE_ENV === 'development' ? error.message : undefined
       },
+      { status: 500 }
+    );
+  }
+}
+
+// ========================================
+// PUT - Actualizar estado u otros campos
+// ========================================
+export async function PUT({ request }) {
+  try {
+    const body = await request.json();
+    
+    if (!body.id) {
+      return json(
+        { success: false, error: 'ID requerido' },
+        { status: 400 }
+      );
+    }
+    
+    // Si es cambio de estado, redirigir al endpoint específico
+    if (body.estado && !body.items) {
+      return json(
+        { 
+          success: false, 
+          error: 'Usa /api/pedidos/[id]/cambiar-estado para cambios de estado',
+          endpoint_correcto: `/api/pedidos/${body.id}/cambiar-estado`
+        },
+        { status: 400 }
+      );
+    }
+    
+    // Otros campos editables...
+    const updateData = {};
+    if (body.notas !== undefined) updateData.notas = body.notas;
+    
+    const { data, error } = await supabaseAdmin
+      .from('pedidos')
+      .update(updateData)
+      .eq('id', body.id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    return json({ success: true, data });
+    
+  } catch (error) {
+    return json(
+      { success: false, error: error.message },
       { status: 500 }
     );
   }

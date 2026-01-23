@@ -124,7 +124,7 @@ export async function POST({ params, request }) {
       
       // ✅ CRÍTICO: Retroceder a PENDIENTE para claridad
       updateData = {
-        estado: ESTADOS.PENDIENTE, // ← CAMBIO CLAVE
+        estado: ESTADOS.CONFIRMADO, // ← CAMBIO CLAVE
         estado_pago: ESTADOS_PAGO.RECHAZADO,
         esperando_validacion: false,
         motivo_rechazo_pago: motivo_rechazo.trim(),

@@ -1,4 +1,5 @@
 <!-- src/routes/(admin)/pedidos/+page.svelte -->
+<!-- ✅ VERSIÓN CORREGIDA -->
 <script>
   import { onMount } from 'svelte';
   import { Bell, Search, Eye, MessageCircle, CheckCircle, XCircle, Edit } from 'lucide-svelte';
@@ -14,7 +15,6 @@
   let loading = true;
   let error = '';
   let success = '';
-   let debugInfo = '';
   let pendientesValidacion = 0;
   
   // Filtros
@@ -29,6 +29,7 @@
   let modalDetalles = { open: false, pedido: null };
   let modalEditar = { open: false, pedido: null };
   
+  // ✅ MEJORADO: Estados para UI
   const estados = Object.keys(ESTADOS).map(key => ({
     value: ESTADOS[key],
     ...CONFIG_ESTADOS[ESTADOS[key]]
@@ -38,18 +39,58 @@
     await loadPedidos();
   });
   
+  // ✅ MEJORADO: Función de carga con mejor manejo de errores
   async function loadPedidos() {
-    // Solo recargar cuando sea necesario (botón, acción)
     loading = true;
+    error = '';
+    
     try {
-      const res = await fetch('/api/pedidos');
+      const params = new URLSearchParams();
+      
+      if (filterEstado) params.append('estado', filterEstado);
+      if (searchTerm) params.append('busqueda', searchTerm);
+      if (mostrarSoloPendientes) params.append('validacion_pendiente', 'true');
+      
+      const res = await fetch(`/api/pedidos?${params.toString()}`);
+      
+      if (!res.ok) {
+        throw new Error(`Error HTTP: ${res.status}`);
+      }
+      
       const result = await res.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Error al cargar pedidos');
+      }
+      
       pedidos = result.data || [];
+      pendientesValidacion = result.metadata?.pendientesValidacion || 0;
+      
+      console.log(`✅ Cargados ${pedidos.length} pedidos`);
+      
+    } catch (err) {
+      console.error('❌ Error cargando pedidos:', err);
+      error = err.message || 'Error al cargar los pedidos';
+      pedidos = [];
     } finally {
       loading = false;
     }
   }
   
+  // ✅ CRÍTICO: Función de cambio de estado corregida
+  function handleCambioEstado(event) {
+    console.log('🔄 Estado cambiado:', event.detail);
+    
+    // Mostrar mensaje de éxito
+    success = '✅ Estado actualizado correctamente';
+    setTimeout(() => success = '', 3000);
+    
+    // Recargar pedidos
+    loadPedidos();
+    
+    // Cerrar modal de detalles
+    modalDetalles.open = false;
+  }
   
   function abrirModalValidarPago(pedido) {
     modalValidarPago = { open: true, pedido };
@@ -87,7 +128,7 @@
       minute: '2-digit'
     });
   }
-  
+
   function abrirWhatsApp(pedido) {
     const config = CONFIG_ESTADOS[pedido.estado];
     const mensaje = `Hola ${pedido.cliente_nombre}, tu pedido #${pedido.numero_pedido} está *${config.label}*. ${config.descripcion}`;
@@ -95,7 +136,15 @@
     window.open(url, '_blank');
   }
   
-  $: pedidosFiltrados = pedidos;
+  // ✅ MEJORADO: Filtrado reactivo
+  $: pedidosFiltrados = pedidos.filter(p => {
+    // Validar que el pedido tenga un estado válido
+    if (!p.estado || !CONFIG_ESTADOS[p.estado]) {
+      console.warn(`⚠️ Pedido ${p.id} tiene estado inválido: "${p.estado}"`);
+      return false;
+    }
+    return true;
+  });
 </script>
 
 <svelte:head>
@@ -110,7 +159,13 @@
       <p class="mt-1 text-sm text-gray-600">Administra y da seguimiento a todos los pedidos</p>
     </div>
     
-    <BadgePendientes count={pendientesValidacion} on:click={() => mostrarSoloPendientes = !mostrarSoloPendientes} />
+    <BadgePendientes 
+      count={pendientesValidacion} 
+      on:click={() => {
+        mostrarSoloPendientes = !mostrarSoloPendientes;
+        loadPedidos();
+      }} 
+    />
   </div>
 
   <!-- Mensajes -->
@@ -183,35 +238,6 @@
       </button>
     </div>
   </div>
-  <!-- ✅ AGREGAR DEBUG INFO EN EL HTML -->
-<div class="max-w-7xl mx-auto">
-  <div class="mb-6 flex items-center justify-between">
-    <!-- ... tu header existente ... -->
-  </div>
-  
-  <!-- ✅ PANEL DE DEBUG (solo en desarrollo) -->
-  {#if debugInfo}
-    <div class="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
-      <p class="text-sm text-blue-800 font-mono">{debugInfo}</p>
-    </div>
-  {/if}
-  
-  <!-- Mensajes de error -->
-  {#if error}
-    <div class="mb-4 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
-      <p class="font-semibold">Error:</p>
-      <p class="text-sm mt-1">{error}</p>
-      <button 
-        on:click={loadPedidos}
-        class="text-sm underline mt-2"
-      >
-        Reintentar
-      </button>
-    </div>
-  {/if}
-  
-  <!-- ... resto de tu código ... -->
-</div>
 
   {#if loading}
     <div class="flex items-center justify-center py-12">
@@ -329,35 +355,50 @@
 {#if modalValidarPago.open}
   <ModalValidarPago
     pedido={modalValidarPago.pedido}
-    on:close={() => { modalValidarPago.open = false; loadPedidos(); }}
+    on:validated={() => loadPedidos()}
+    on:close={() => { 
+      modalValidarPago.open = false; 
+      loadPedidos(); 
+    }}
   />
 {/if}
 
 {#if modalCancelar.open}
   <ModalCancelar
     pedido={modalCancelar.pedido}
-    on:close={() => { modalCancelar.open = false; loadPedidos(); }}
+    on:close={() => { 
+      modalCancelar.open = false; 
+      loadPedidos(); 
+    }}
   />
 {/if}
 
 {#if modalEnviar.open}
   <ModalEnviar
     pedido={modalEnviar.pedido}
-    on:close={() => { modalEnviar.open = false; loadPedidos(); }}
+    on:close={() => { 
+      modalEnviar.open = false; 
+      loadPedidos(); 
+    }}
   />
 {/if}
 
 {#if modalEditar.open}
   <ModalEditarPedido
     pedido={modalEditar.pedido}
-    on:close={() => { modalEditar.open = false; loadPedidos(); }}
+    on:close={() => { 
+      modalEditar.open = false; 
+      loadPedidos(); 
+    }}
   />
 {/if}
 
 {#if modalDetalles.open}
   <ModalDetalles
     pedido={modalDetalles.pedido}
-    on:close={() => { modalDetalles.open = false; }}
-    on:accion={() => loadPedidos()}
+    on:close={() => { 
+      modalDetalles.open = false; 
+    }}
+    on:accion={handleCambioEstado}
   />
 {/if}

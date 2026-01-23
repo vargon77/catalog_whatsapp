@@ -60,7 +60,7 @@ export async function POST({ params, request }) {
         updateData.fecha_pagado = new Date().toISOString();
         break;
       case ESTADOS.PREPARANDO:
-        updateData.fecha_preparando = new Date().toISOString();
+        updateData.fecha_pagado = new Date().toISOString();
         break;
       case ESTADOS.ENVIADO:
         updateData.fecha_enviado = new Date().toISOString();
@@ -72,7 +72,7 @@ export async function POST({ params, request }) {
         updateData.fecha_entregado = new Date().toISOString();
         break;
       case ESTADOS.CANCELADO:
-        updateData.fecha_cancelado = new Date().toISOString();
+        //updateData.fecha_cancelado = new Date().toISOString();
         updateData.motivo_cancelacion = notas || 'Cancelado por administrador';
         updateData.editable = false;
         break;
