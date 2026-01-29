@@ -11,6 +11,7 @@ export async function POST({ params, request }) {
     const body = await request.json();
     const { estado: estadoNuevo, notas, usuario } = body;
 
+    // Validaciones
     if (!estadoNuevo) {
       return json({ success: false, error: 'El campo "estado" es requerido' }, { status: 400 });
     }
@@ -23,6 +24,7 @@ export async function POST({ params, request }) {
       }, { status: 400 });
     }
 
+    // Obtener pedido
     const { data: pedido, error } = await supabaseAdmin
       .from('pedidos')
       .select('*')
@@ -37,6 +39,7 @@ export async function POST({ params, request }) {
       return json({ success: false, error: 'El pedido ya está en ese estado' }, { status: 400 });
     }
 
+    // Validar transición
     const validacion = validarTransicionConContexto(pedido, estadoNuevo);
     if (!validacion.valido) {
       return json({ 
@@ -47,6 +50,7 @@ export async function POST({ params, request }) {
       }, { status: 400 });
     }
 
+    // Preparar datos de actualización
     const updateData = {
       estado: estadoNuevo
     };
@@ -59,9 +63,9 @@ export async function POST({ params, request }) {
       case ESTADOS.PAGADO:
         updateData.fecha_pagado = new Date().toISOString();
         break;
-      case ESTADOS.PREPARANDO:
-        updateData.fecha_pagado = new Date().toISOString();
-        break;
+      //case ESTADOS.PREPARANDO:
+      //  updateData.fecha_preparando = new Date().toISOString();
+      //  break;
       case ESTADOS.ENVIADO:
         updateData.fecha_enviado = new Date().toISOString();
         break;
@@ -72,12 +76,12 @@ export async function POST({ params, request }) {
         updateData.fecha_entregado = new Date().toISOString();
         break;
       case ESTADOS.CANCELADO:
-        //updateData.fecha_cancelado = new Date().toISOString();
         updateData.motivo_cancelacion = notas || 'Cancelado por administrador';
         updateData.editable = false;
         break;
     }
 
+    // Actualizar pedido
     const { data: pedidoActualizado, error: errorUpdate } = await supabaseAdmin
       .from('pedidos')
       .update(updateData)
@@ -90,6 +94,7 @@ export async function POST({ params, request }) {
       return json({ success: false, error: 'Error al cambiar estado' }, { status: 500 });
     }
 
+    // Registrar en historial
     await supabaseAdmin.from('pedidos_historial').insert({
       pedido_id: id,
       estado_anterior: pedido.estado,
@@ -103,29 +108,37 @@ export async function POST({ params, request }) {
       }
     });
 
-    // Encolar notificación según el estado
-    const tiposNotificacion = {
-      [ESTADOS.CONFIRMADO]: 'pedido_confirmado',
-      [ESTADOS.PREPARANDO]: 'pedido_preparando',
-      [ESTADOS.ENVIADO]: 'pedido_enviado',
-      [ESTADOS.CANCELADO]: 'pedido_cancelado'
+    // ✅ NOTIFICACIONES - Mapeo de estados a tipos
+    const MAPA_NOTIFICACIONES = {
+      'confirmado': 'pedido_confirmado',
+      'preparando': 'pedido_preparando',
+      'enviado': 'pedido_enviado',
+      'cancelado': 'pedido_cancelado'
     };
 
-    const tipoNotif = tiposNotificacion[estadoNuevo];
-    if (tipoNotif) {
+    const tipoNotificacion = MAPA_NOTIFICACIONES[estadoNuevo];
+    
+    if (tipoNotificacion) {
       try {
         await encolarNotificacion({
           pedidoId: id,
           clienteWhatsapp: pedido.cliente_whatsapp,
-          tipo: tipoNotif,
+          tipo: tipoNotificacion,
           prioridad: estadoNuevo === ESTADOS.CANCELADO ? 'alta' : 'media',
           metadata: { 
             notas: notas || null,
             motivo: estadoNuevo === ESTADOS.CANCELADO ? (notas || 'Cancelado por administrador') : null
           }
         });
+
+        // 🔥 Procesar cola inmediatamente
+        const { procesarCola } = await import('$lib/server/notificaciones/cola');
+        await procesarCola();
+        
+        console.log(`✅ Notificación ${tipoNotificacion} enviada para pedido ${pedidoActualizado.numero_pedido}`);
       } catch (notifError) {
-        console.error('Error encolando notificación:', notifError);
+        console.error('⚠️ Error en notificación:', notifError);
+        // No fallar el cambio de estado por error de notificación
       }
     }
 
@@ -133,11 +146,15 @@ export async function POST({ params, request }) {
       success: true,
       data: pedidoActualizado,
       message: `Estado cambiado a ${estadoNuevo}`,
-      notificacion_encolada: !!tipoNotif
+      notificacion_enviada: !!tipoNotificacion
     });
 
   } catch (error) {
     console.error('Error en cambiar-estado:', error);
-    return json({ success: false, error: 'Error interno' }, { status: 500 });
+    return json({ 
+      success: false, 
+      error: 'Error interno',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    }, { status: 500 });
   }
 }

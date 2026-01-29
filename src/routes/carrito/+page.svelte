@@ -18,7 +18,11 @@
   let metodoPago = '';
   let costoEnvio = 0;
   let urlConstancia = '';
-  
+  // Función para validar WhatsApp (10 dígitos)
+  function validarWhatsApp(whatsapp) {
+    const soloNumeros = whatsapp.replace(/\D/g, '');
+    return soloNumeros.length === 10;
+  }
   // Función para calcular totales
   function calcularTotalesPedido(items, factura, envio, costoEnvioParam, impuestoPorcentaje) {
     const subtotal = items.reduce((total, item) => 
@@ -43,6 +47,7 @@
 
   $: ({ subtotal, impuesto, costo_envio, total } = totales);
   
+  
   // Datos del cliente
   let datosCliente = {
     nombre: '',
@@ -61,7 +66,8 @@
   
   // Validar formulario
   $: formularioValido = datosCliente.nombre.trim() !== '' && 
-                        datosCliente.whatsapp.trim() !== '';
+                        datosCliente.whatsapp.trim() !== '' &&
+                        validarWhatsApp(datosCliente.whatsapp);
   
   // Función para crear pedido en BD y enviar por WhatsApp
   async function crearYEnviarPedido() {
@@ -178,7 +184,7 @@
       
       <!-- ✨ BOTÓN MIS PEDIDOS - SIEMPRE VISIBLE -->
       <a 
-        href="(tenda)/carrito/mis-pedidos"
+        href="/carrito/mis-pedidos"
         class="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-xl hover:from-primary-700 hover:to-primary-800 transition-all shadow-lg shadow-primary-200 font-semibold group"
       >
         <ClipboardList class="w-5 h-5 group-hover:scale-110 transition-transform" />
@@ -374,10 +380,14 @@
                   type="tel"
                   bind:value={datosCliente.whatsapp}
                   placeholder="Ej: 7121920418"
-                  class="input"
+                  class="input {datosCliente.whatsapp.trim() && !validarWhatsApp(datosCliente.whatsapp) ? 'border-red-500' : ''}"
                   disabled={enviandoPedido}
                   required
+                  maxlength="10"
                 />
+                {#if datosCliente.whatsapp.trim() && !validarWhatsApp(datosCliente.whatsapp)}
+                  <p class="text-xs text-red-600 mt-1">El WhatsApp debe tener 10 dígitos numéricos</p>
+                {/if}
               </div>
              
               <div>
@@ -395,7 +405,7 @@
         </div>
 
         <!-- FACTURACION, ENVIO Y FORMAS DE PAGO -->
-        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+        <div class="bg-white rounded-xl shadow-sm overflow-hidden"> 
           <div class="p-6 space-y-4">
             <h3 class="font-medium text-gray-700 mb-4">Opciones del Pedido</h3>
             
@@ -429,19 +439,13 @@
               </label>
               
               {#if requiereEnvio}
-                <div class="ml-6 mt-2">
-                  <label class="label text-xs">Costo de envío (estimado)</label>
-                  <input
-                    type="number"
-                    bind:value={costoEnvio}
-                    min="0"
-                    step="0.01"
-                    class="input text-sm"
-                    placeholder="0.00"
-                    disabled={enviandoPedido}
-                  />
-                  <p class="text-xs text-gray-500 mt-1">
-                    Se confirmará el costo final por WhatsApp
+                
+                 <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p class="text-sm font-medium text-blue-900 mb-2">
+                    ℹ️ Información de Envío:
+                  </p>
+                  <p class="text-xs text-blue-800">
+                    Se confirmará el  <strong>costo</strong> final por <strong>WhatsApp</strong> por nuestro equipo.
                   </p>
                 </div>
               {/if}
@@ -480,51 +484,19 @@
             </div>
             
             <!-- Datos bancarios (si seleccionó método) -->
-            {#if metodoPago && configuracion?.cuentas_pago}
-              {@const cuentas = typeof configuracion.cuentas_pago === 'string' 
-                ? JSON.parse(configuracion.cuentas_pago) 
-                : configuracion.cuentas_pago}
-              
-              {#if Array.isArray(cuentas) && cuentas.length > 0}
+            
+            {#if metodoPago}
                 <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <p class="text-sm font-medium text-blue-900 mb-2">
-                    Datos para {metodoPago === 'deposito' ? 'Depósito' : 'Transferencia'}:
+                    ℹ️ Información de {metodoPago === 'deposito' ? 'Depósito' : 'Transferencia'}:
                   </p>
-                  {#each cuentas as cuenta}
-                    <div class="text-xs text-blue-800 space-y-1 mb-3 border-b border-blue-200 pb-2 last:border-0">
-                      <p><strong>Banco:</strong> {cuenta.banco}</p>
-                      <p><strong>Titular:</strong> {cuenta.titular}</p>
-                      <p><strong>Cuenta:</strong> {cuenta.numero_cuenta}</p>
-                      {#if cuenta.clabe}
-                        <p><strong>CLABE:</strong> {cuenta.clabe}</p>
-                      {/if}
-                      {#if cuenta.referencia}
-                        <p><strong>Referencia:</strong> {cuenta.referencia}</p>
-                      {/if}
-                    </div>
-                  {/each}
+                  <p class="text-xs text-blue-800">
+                    Los datos de cuenta se te enviarán por WhatsApp una vez que tu pedido sea <strong>confirmado</strong> por nuestro equipo.
+                  </p>
                 </div>
-              {/if}
             {/if}
             
-            <!-- Subir constancia de pago -->
-            {#if metodoPago}
-              <div class="mt-4">
-                <label class="label text-sm mb-2">
-                  Constancia de Pago (opcional)
-                </label>
-                <ImageUploader
-                  bind:imageUrl={urlConstancia}
-                  label=""
-                  disabled={enviandoPedido}
-                  on:upload={(e) => urlConstancia = e.detail.url}
-                  on:remove={() => urlConstancia = ''}
-                />
-                <p class="text-xs text-gray-500 mt-1">
-                  Puedes adjuntar tu comprobante o enviarlo después por WhatsApp
-                </p>
-              </div>
-            {/if}
+           
           </div>
         </div>
       </div>
@@ -550,7 +522,7 @@
             
             {#if requiereEnvio}
               <div class="flex justify-between text-gray-600">
-                <span>Envío</span>
+                <span>Envío <strong>(A cotizar)</strong> </span>
                 <span class="font-medium">{configuracion?.moneda_simbolo || '$'}{costo_envio.toFixed(2)}</span>
               </div>
             {/if}
@@ -587,7 +559,7 @@
           
           {#if !formularioValido}
             <p class="text-xs text-amber-600 text-center mb-4">
-              * Completa tu nombre y WhatsApp para continuar
+              * Completa tu nombre y WhatsApp válido (10 dígitos) para continuar
             </p>
           {/if}
           

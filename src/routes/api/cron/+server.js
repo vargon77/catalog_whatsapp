@@ -266,6 +266,9 @@ export async function POST({ request }) {
       case 'cancelar-abandonados':
         result = await cancelarPedidosAbandonados();
         break;
+      case 'recordatorios-rechazo':
+        result = await recordatoriosPagoRechazado();
+        break;
         
       case 'all':
         // Ejecutar todas las tareas en paralelo
@@ -395,4 +398,90 @@ export async function GET({ url }) {
       note: 'Configurar CRON_SECRET en variables de entorno'
     }
   });
+}
+
+async function recordatoriosPagoRechazado() {
+  try {
+    const ahora = new Date();
+    
+    // ✅ RECORDATORIO 12H
+    const fecha12h = new Date(ahora.getTime() - 12 * 60 * 60 * 1000);
+    
+    const { data: pedidos12h } = await supabaseAdmin
+      .from('pedidos')
+      .select('id, numero_pedido, cliente_nombre, cliente_whatsapp, fecha_confirmado')
+      .eq('estado', 'confirmado')
+      .eq('estado_pago', 'rechazado')
+      .is('constancia_pago_url', null)
+      .lt('fecha_confirmado', fecha12h.toISOString())
+      .gte('fecha_confirmado', new Date(ahora.getTime() - 13 * 60 * 60 * 1000).toISOString());
+    
+    for (const pedido of (pedidos12h || [])) {
+      await encolarNotificacion({
+        pedidoId: pedido.id,
+        clienteWhatsapp: pedido.cliente_whatsapp,
+        tipo: 'recordatorio_pago',
+        prioridad: 'media',
+        metadata: {
+          horas_transcurridas: 12,
+          advertencia: 'Si no envías comprobante en 24h, tu pedido será cancelado'
+        }
+      });
+    }
+    
+    // ✅ CANCELACIÓN AUTOMÁTICA 36H
+    const fecha36h = new Date(ahora.getTime() - 36 * 60 * 60 * 1000);
+    
+    const { data: pedidos36h } = await supabaseAdmin
+      .from('pedidos')
+      .select('id, numero_pedido, cliente_nombre, cliente_whatsapp')
+      .eq('estado', 'confirmado')
+      .eq('estado_pago', 'rechazado')
+      .is('constancia_pago_url', null)
+      .lt('fecha_confirmado', fecha36h.toISOString());
+    
+    for (const pedido of (pedidos36h || [])) {
+      // Cancelar automáticamente
+      await supabaseAdmin
+        .from('pedidos')
+        .update({
+          estado: 'cancelado',
+          motivo_cancelacion: 'Cancelado automáticamente: Sin comprobante tras 36h de rechazo',
+          editable: false
+        })
+        .eq('id', pedido.id);
+      
+      // Registrar historial
+      await supabaseAdmin
+        .from('pedidos_historial')
+        .insert({
+          pedido_id: pedido.id,
+          estado_anterior: 'confirmado',
+          estado_nuevo: 'cancelado',
+          tipo_usuario: 'sistema',
+          notas: 'Cancelación automática por timeout 36h sin comprobante tras rechazo'
+        });
+      
+      // Notificar cliente
+      await encolarNotificacion({
+        pedidoId: pedido.id,
+        clienteWhatsapp: pedido.cliente_whatsapp,
+        tipo: 'pedido_cancelado',
+        prioridad: 'alta',
+        metadata: {
+          motivo: 'No se recibió nuevo comprobante tras 36 horas del rechazo'
+        }
+      });
+    }
+    
+    return {
+      success: true,
+      recordatorios_12h: pedidos12h?.length || 0,
+      cancelaciones_36h: pedidos36h?.length || 0
+    };
+    
+  } catch (error) {
+    console.error('Error en recordatorios pago rechazado:', error);
+    return { success: false, error: error.message };
+  }
 }

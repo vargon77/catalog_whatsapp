@@ -336,6 +336,9 @@ export async function POST({ request }) {
           items_count: items.length
         }
       });
+      // ✅ AGREGAR ESTO - Procesar inmediatamente
+      const { procesarColaNot } = await import('$lib/server/notificaciones/procesador');
+      await procesarColaNot();
       console.log('✅ Notificación encolada');
     } catch (notifError) {
       console.error('⚠️ Error encolando notificación:', notifError);
