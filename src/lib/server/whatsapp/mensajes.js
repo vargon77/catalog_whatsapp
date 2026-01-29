@@ -1,33 +1,45 @@
-// src/lib/server/whatsapp/servicio.js
+// src/lib/server/whatsapp/mensajes.js
 import { ESTADOS } from '$lib/pedidos/estadosCliente';
 
-export async function enviarMensajeWhatsApp(pedido, tipo, config, metadata = {}) {
+/**
+ * Genera mensaje de WhatsApp según el tipo
+ */
+export function generarMensajeWhatsApp(pedido, tipo, config, metadata = {}) {
   const telefonoDestino = pedido.cliente_whatsapp;
   const telefonoEmisor = config.whatsapp_negocio || config.whatsapp || '';
   const nombreNegocio = config.nombre_negocio || 'CatálogoExpress';
+
+  if (!telefonoDestino) {
+    console.error('❌ WhatsApp del cliente no disponible');
+    return null;
+  }
   
-  const mensajes = {
-    pedido_recibido: generarMensajePedidoRecibido,
-    pedido_confirmado: generarMensajePedidoConfirmado,
-    pago_validado: generarMensajePagoValidado,
-    pago_rechazado: generarMensajePagoRechazado,
-    pedido_preparando: generarMensajePedidoPreparando,
-    pedido_enviado: generarMensajePedidoEnviado,
-    pedido_recibido_confirmacion: generarMensajeRecibidoConfirmacion,
-    pedido_cancelado: generarMensajePedidoCancelado,
-    recordatorio_pago: generarMensajeRecordatorioPago
+  const generadores = {
+    'pedido_recibido': () => generarMensajePedidoRecibido(pedido, nombreNegocio),
+    'pedido_confirmado': () => generarMensajePedidoConfirmado(pedido, nombreNegocio, metadata),
+    'pago_validado': () => generarMensajePagoValidado(pedido, nombreNegocio),
+    'pago_rechazado': () => generarMensajePagoRechazado(pedido, nombreNegocio, metadata),
+    'pedido_preparando': () => generarMensajePedidoPreparando(pedido, nombreNegocio),
+    'pedido_enviado': () => generarMensajePedidoEnviado(pedido, nombreNegocio, metadata),
+    'pedido_recibido_confirmacion': () => generarMensajeRecibidoConfirmacion(pedido, nombreNegocio, metadata),
+    'pedido_cancelado': () => generarMensajePedidoCancelado(pedido, nombreNegocio, metadata),
+    'recordatorio_pago': () => generarMensajeRecordatorioPago(pedido, nombreNegocio, metadata)
   };
 
-  const generador = mensajes[tipo];
+  const generador = generadores[tipo];
   if (!generador) {
-    throw new Error(`Tipo de mensaje no soportado: ${tipo}`);
+    throw new Error(`Tipo de mensaje no reconocido: ${tipo}`);
   }
 
-  const mensaje = generador(pedido, nombreNegocio, metadata);
-  const url = `https://wa.me/${telefonoEmisor}?text=${encodeURIComponent(mensaje)}`;
+  const mensaje = generador();
+  const url = `https://wa.me/${telefonoDestino}?text=${encodeURIComponent(mensaje)}`;
 
-  return {  mensaje, url, telefono: telefonoEmisor };
+  return { mensaje, url, telefono: telefonoDestino };
 }
+
+// ========================================
+// GENERADORES DE MENSAJES
+// ========================================
 
 function generarMensajePedidoRecibido(pedido, nombreNegocio) {
   return `🎉 *¡Pedido Recibido!*
@@ -46,7 +58,6 @@ En breve revisaremos tu pedido y te confirmaremos los detalles.
 Gracias por tu compra en ${nombreNegocio} 🙏`;
 }
 
-
 function generarMensajePedidoConfirmado(pedido, nombreNegocio, metadata) {
   let mensaje = `✅ *Pedido Confirmado*
 
@@ -60,7 +71,7 @@ Tu pedido #${pedido.numero_pedido} ha sido confirmado.
     mensaje += `\n📦 *Envío:* $${pedido.costo_envio.toFixed(2)}`;
   }
 
-  // ✅ INCLUIR DATOS BANCARIOS
+  // Incluir datos bancarios
   if (metadata.cuentas_pago && Array.isArray(metadata.cuentas_pago)) {
     mensaje += `\n\n💳 *Datos para ${pedido.metodo_pago === 'deposito' ? 'Depósito' : 'Transferencia'}:*\n`;
     
@@ -78,7 +89,7 @@ Tu pedido #${pedido.numero_pedido} ha sido confirmado.
   mensaje += `\n\n📲 *Siguiente paso:*
 1. Realiza el pago
 2. Toma captura del comprobante
-3. Súbelo en: ${nombreNegocio.replace(/\s+/g, '-').toLowerCase()}.com/carrito/mis-pedidos
+3. Súbelo desde tu área de pedidos
 
 ${nombreNegocio}`;
 

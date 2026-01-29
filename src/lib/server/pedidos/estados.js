@@ -112,24 +112,18 @@ export function validarTransicionConContexto(pedido, estadoNuevo) {
 // ========================================
 // VERIFICAR SI ES EDITABLE
 // ========================================
+
 export function esEditable(pedido) {
   if (!pedido) return false;
-  
-  // Verificar explícitamente la bandera
   if (pedido.editable === false) return false;
-  
-  // No editable si pago validado (excepto si fue rechazado)
   if (pedido.estado_pago === ESTADOS_PAGO.PAGADO) return false;
+  // ✅ Permitir edición en PENDIENTE y CONFIRMADO
+  // aunque tenga comprobante pendiente o rechazado
+  const estadosEditables = [ESTADOS.PENDIENTE, ESTADOS.CONFIRMADO];
   
-  // Solo editable en estados iniciales
-  const estadosEditables = [
-    ESTADOS.PENDIENTE,
-    ESTADOS.CONFIRMADO
-  ];
   
   return estadosEditables.includes(pedido.estado);
 }
-
 // ========================================
 // OBTENER SIGUIENTE ESTADO LÓGICO
 // ========================================
