@@ -1,8 +1,8 @@
 <!-- src/routes/(admin)/pedidos/+page.svelte -->
-<!-- ✅ VERSIÓN CORREGIDA -->
+<!-- ✅ VERSIÓN CORREGIDA - Estructura de tabla arreglada -->
 <script>
   import { onMount } from 'svelte';
-  import { Bell, Search, Eye, MessageCircle, CheckCircle, XCircle, Edit } from 'lucide-svelte';
+  import { Bell, Search, Eye, MessageCircle, CheckCircle, XCircle, Edit, Truck } from 'lucide-svelte';
   import { ESTADOS, CONFIG_ESTADOS, obtenerColorEstado } from '$lib/pedidos/estadosCliente';
   import ModalValidarPago from '$lib/components/pedidos/ModalValidarPago.svelte';
   import ModalCancelar from '$lib/components/pedidos/ModalCancelar.svelte';
@@ -10,6 +10,7 @@
   import ModalDetalles from '$lib/components/pedidos/ModalDetalles.svelte';
   import ModalEditarPedido from '$lib/components/pedidos/ModalEditarPedido.svelte';
   import BadgePendientes from '$lib/components/pedidos/BadgePendientes.svelte';
+  import ModalGuiaEnvio from '$lib/components/pedidos/ModalGuiaEnvio.svelte';
   
   let pedidos = [];
   let loading = true;
@@ -28,6 +29,7 @@
   let modalEnviar = { open: false, pedido: null };
   let modalDetalles = { open: false, pedido: null };
   let modalEditar = { open: false, pedido: null };
+  let modalGuiaEnvio = { open: false, pedido: null };
   
   // ✅ MEJORADO: Estados para UI
   const estados = Object.keys(ESTADOS).map(key => ({
@@ -112,6 +114,10 @@
     modalDetalles = { open: true, pedido };
   }
   
+  function abrirModalGuiaEnvio(pedido) {
+    modalGuiaEnvio = { open: true, pedido };
+  }
+
   function formatCurrency(amount) {
     return new Intl.NumberFormat('es-MX', {
       style: 'currency',
@@ -314,6 +320,16 @@
                       </button>
                     {/if}
                     
+                    {#if pedido.estado === 'preparando'}
+                      <button
+                        on:click={() => abrirModalGuiaEnvio(pedido)}
+                        class="p-2 text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100"
+                        title="Marcar como enviado"
+                      >
+                        <Truck class="w-5 h-5" />
+                      </button>
+                    {/if}
+                    
                     {#if pedido.editable}
                       <button
                         on:click={() => abrirModalEditar(pedido)}
@@ -358,6 +374,16 @@
     on:validated={() => loadPedidos()}
     on:close={() => { 
       modalValidarPago.open = false; 
+      loadPedidos(); 
+    }}
+  />
+{/if}
+
+{#if modalGuiaEnvio.open}
+  <ModalGuiaEnvio
+    pedido={modalGuiaEnvio.pedido}
+    on:close={() => { 
+      modalGuiaEnvio.open = false; 
       loadPedidos(); 
     }}
   />

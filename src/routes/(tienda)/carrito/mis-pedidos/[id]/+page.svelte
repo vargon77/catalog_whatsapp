@@ -11,6 +11,7 @@
   import TimelinePedido from '$lib/components/cliente/TimelinePedido.svelte';
   import SubirComprobante from '$lib/components/cliente/SubirComprobante.svelte';
   import ConfirmarRecepcion from '$lib/components/cliente/ConfirmarRecepcion.svelte';
+  import FormularioDireccion from '$lib/components/cliente/FormularioDireccion.svelte';
   
   export let data;
   
@@ -18,6 +19,8 @@
   let loading = false;
   let error = '';
   let success = '';
+  let mostrarFormularioDireccion = false;
+  let direccionGuardada = false;
   
   $: colores = obtenerColorEstado(pedido?.estado);
   $: config = CONFIG_ESTADOS[pedido?.estado];
@@ -60,6 +63,18 @@
     const tel = data.configuracion?.whatsapp_numero || '';
     const mensaje = `Hola, tengo una consulta sobre mi pedido #${pedido.numero_pedido}`;
     window.open(`https://wa.me/${tel}?text=${encodeURIComponent(mensaje)}`, '_blank');
+  }
+  // ✅ Verificar si necesita dirección
+  $: necesitaDireccion = pedido?.envio && 
+                         pedido?.estado === 'confirmado' && 
+                         pedido?.constancia_pago_url && 
+                         !pedido?.cliente_direccion?.calle;
+  
+  // ✅ Handler cuando se guarda la dirección
+  function handleDireccionGuardada(event) {
+    direccionGuardada = true;
+    mostrarFormularioDireccion = false;
+    recargarPedido();
   }
   
   function volver() {
@@ -149,6 +164,159 @@
           </div>
         </div>
       {:else if pedido.estado === 'enviado'}
+      {#if pedido.estado === 'confirmado' && pedido.constancia_pago_url && pedido.estado_pago === 'pendiente_validacion'}
+  
+  <!-- ✅ MOSTRAR FORMULARIO DE DIRECCIÓN SI REQUIERE ENVÍO -->
+  {#if pedido.envio}
+    <FormularioDireccion 
+      {pedido}
+      direccionInicial={pedido.cliente_direccion}
+      on:guardado={handleDireccionGuardada}
+    />
+    
+    {#if pedido.cliente_direccion?.calle}
+      <div class="bg-green-50 border-2 border-green-200 rounded-2xl p-6 mb-6">
+        <div class="flex items-center gap-4">
+          <div class="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+            <CheckCircle class="w-6 h-6 text-green-600" />
+          </div>
+          <div class="flex-1">
+            <h3 class="text-lg font-bold text-green-900 mb-1">
+              ✅ Dirección Confirmada
+            </h3>
+            <p class="text-sm text-green-700">
+              Tu comprobante y dirección están siendo validados por nuestro equipo
+            </p>
+          </div>
+        </div>
+      </div>
+    {/if}
+  {/if}
+  
+{:else if pedido.estado === 'preparando'}
+  
+  <!-- ✅ VISTA DE PREPARANDO -->
+  <div class="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl shadow-lg p-6 mb-6 border-2 border-indigo-200">
+    <div class="flex items-start gap-4">
+      <div class="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
+        <Package class="w-6 h-6 text-indigo-600" />
+      </div>
+      <div class="flex-1">
+        <h3 class="text-lg font-bold text-gray-900 mb-2">
+          📦 Tu pedido está siendo preparado
+        </h3>
+        <p class="text-sm text-gray-700 mb-4">
+          Estamos empaquetando tus productos con mucho cuidado. Pronto estará listo para el envío.
+        </p>
+        
+        {#if pedido.envio && pedido.cliente_direccion}
+          <div class="bg-white rounded-xl p-4 border border-indigo-200">
+            <p class="font-semibold text-indigo-900 mb-2 flex items-center gap-2">
+              <MapPin class="w-4 h-4" />
+              Se enviará a:
+            </p>
+            <div class="text-sm text-gray-700 space-y-1">
+              <p><strong>{pedido.cliente_direccion.nombre_destinatario}</strong></p>
+              <p>
+                {pedido.cliente_direccion.calle} {pedido.cliente_direccion.numero_exterior}
+                {pedido.cliente_direccion.numero_interior ? `, Int. ${pedido.cliente_direccion.numero_interior}` : ''}
+              </p>
+              <p>{pedido.cliente_direccion.colonia}</p>
+              <p>
+                {pedido.cliente_direccion.codigo_postal} - {pedido.cliente_direccion.ciudad}, {pedido.cliente_direccion.estado}
+              </p>
+              <p class="text-indigo-600 font-medium pt-2">
+                📞 {pedido.cliente_direccion.telefono}
+              </p>
+            </div>
+          </div>
+        {/if}
+      </div>
+    </div>
+  </div>
+  
+
+  
+  <!-- ✅ VISTA DE ENVIADO CON GUÍA -->
+  <div class="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl shadow-lg p-6 mb-6 border-2 border-purple-200">
+        <div class="flex items-start gap-4 mb-4">
+          <div class="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0">
+            <Truck class="w-6 h-6 text-purple-600" />
+          </div>
+          <div class="flex-1">
+            <h3 class="text-lg font-bold text-gray-900 mb-2">
+              🚚 Tu pedido está en camino
+            </h3>
+            <p class="text-sm text-gray-700">
+              El paquete ya salió y está siendo transportado a tu dirección
+            </p>
+          </div>
+        </div>
+        
+        {#if pedido.guia_envio}
+          <div class="bg-white rounded-xl p-5 border border-purple-200 space-y-3">
+            <div class="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p class="text-gray-600 mb-1">🚛 Paquetería:</p>
+                <p class="font-semibold text-gray-900">{pedido.guia_envio.paqueteria}</p>
+              </div>
+              
+              {#if pedido.guia_envio.numero_guia && pedido.guia_envio.numero_guia !== 'LOCAL'}
+                <div>
+                  <p class="text-gray-600 mb-1">🔢 Número de guía:</p>
+                  <div class="flex items-center gap-2">
+                    <p class="font-mono font-semibold text-gray-900">{pedido.guia_envio.numero_guia}</p>
+                    <button
+                      on:click={() => navigator.clipboard.writeText(pedido.guia_envio.numero_guia)}
+                      class="text-purple-600 hover:text-purple-800"
+                      title="Copiar número de guía"
+                    >
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              {/if}
+            </div>
+            
+            {#if pedido.cliente_direccion}
+              <div class="pt-3 border-t border-gray-200">
+                <p class="text-gray-600 mb-1 text-sm">📍 Destino:</p>
+                <p class="font-semibold text-gray-900">
+                  {pedido.cliente_direccion.ciudad}, {pedido.cliente_direccion.estado}
+                </p>
+              </div>
+            {/if}
+            
+            {#if pedido.fecha_enviado}
+              <div class="pt-3 border-t border-gray-200">
+                <p class="text-gray-600 mb-1 text-sm">⏰ Enviado:</p>
+                <p class="font-semibold text-gray-900">
+                  {formatDate(pedido.fecha_enviado)}
+                </p>
+              </div>
+            {/if}
+            
+            {#if pedido.guia_envio.url_rastreo}
+              
+                href={pedido.guia_envio.url_rastreo}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="block w-full text-center py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-all shadow-lg flex items-center justify-center gap-2 font-semibold"
+              >
+                🔍 Rastrear mi Pedido
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                </svg>
+              
+            {/if}
+          </div>
+        {/if}
+      </div>
+      
+    {/if}
+    {:else if pedido.estado === 'enviado'}
         <ConfirmarRecepcion 
           {pedido}
           on:success={() => {
