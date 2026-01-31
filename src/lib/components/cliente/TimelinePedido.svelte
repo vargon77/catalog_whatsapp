@@ -30,6 +30,13 @@
       label: 'Pago Confirmado',
       descripcion: 'Tu pago fue validado correctamente'
     },
+      // ESTADO PREPARADO
+    {
+      estado: ESTADOS.PREPARANDO,
+      icon: Package,
+      label: 'Preparando',
+      descripcion: 'Tu pedido está siendo preparado'
+    },
     {
       estado: ESTADOS.ENVIADO,
       icon: Truck,
@@ -198,19 +205,61 @@
             
             <!-- Info adicional para paso activo -->
             {#if activo}
-              <div class="mt-3 p-3 bg-primary-50 border border-primary-200 rounded-lg">
-                {#if paso.estado === ESTADOS.CONFIRMADO && !pedido.constancia_pago_url}
-                  <p class="text-sm text-primary-900 font-medium">
-                    ⏳ Esperando que subas tu comprobante de pago
-                  </p>
-                {:else if paso.estado === ESTADOS.CONFIRMADO && pedido.estado_pago === 'pendiente_validacion'}
-                  <p class="text-sm text-primary-900 font-medium">
-                    ⏳ Tu comprobante está siendo validado
-                  </p>
+  <div class="mt-3 p-3 bg-primary-50 border border-primary-200 rounded-lg">
+    {#if paso.estado === ESTADOS.CONFIRMADO && !pedido.constancia_pago_url}
+      <p class="text-sm text-primary-900 font-medium">
+        ⏳ Esperando que subas tu comprobante de pago
+      </p>
+    {:else if paso.estado === ESTADOS.CONFIRMADO && pedido.estado_pago === 'pendiente_validacion'}
+      <p class="text-sm text-primary-900 font-medium">
+        ⏳ Tu comprobante está siendo validado
+      </p>
+    {:else if paso.estado === ESTADOS.PREPARANDO}
+      <p class="text-sm text-primary-900 font-medium">
+        📦 Estamos preparando tu pedido con cuidado
+      </p>
+      
+      <!-- ✅ MOSTRAR DIRECCIÓN DE ENVÍO -->
+      {#if pedido.envio && pedido.cliente_direccion}
+                    <div class="mt-2 p-2 bg-white rounded border border-primary-100">
+                      <p class="text-xs font-semibold text-primary-900 mb-1">📍 Enviando a:</p>
+                      <p class="text-xs text-primary-800">
+                        {pedido.cliente_direccion.ciudad}, {pedido.cliente_direccion.estado}
+                      </p>
+                    </div>
+                  {/if}
                 {:else if paso.estado === ESTADOS.ENVIADO}
                   <p class="text-sm text-primary-900 font-medium">
-                    📦 Tu pedido está en camino. ¡Pronto lo tendrás!
+                    🚚 Tu pedido está en camino. ¡Pronto lo tendrás!
                   </p>
+                  
+                  <!-- ✅ MOSTRAR DATOS DE GUÍA -->
+                  {#if pedido.guia_envio}
+                    <div class="mt-2 p-2 bg-white rounded border border-primary-100 space-y-1">
+                      <p class="text-xs">
+                        <span class="font-semibold">Paquetería:</span> {pedido.guia_envio.paqueteria}
+                      </p>
+                      {#if pedido.guia_envio.numero_guia && pedido.guia_envio.numero_guia !== 'LOCAL'}
+                        <p class="text-xs">
+                          <span class="font-semibold">Guía:</span> 
+                          <span class="font-mono">{pedido.guia_envio.numero_guia}</span>
+                        </p>
+                      {/if}
+                      {#if pedido.guia_envio.url_rastreo}
+  
+                            href={pedido.guia_envio.url_rastreo}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="text-xs text-primary-600 hover:text-primary-800 font-medium inline-flex items-center gap-1"
+                          >
+                          🔍 Rastrear pedido
+                          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                          </svg>
+                        
+                      {/if}
+                    </div>
+                  {/if}
                 {/if}
               </div>
             {/if}

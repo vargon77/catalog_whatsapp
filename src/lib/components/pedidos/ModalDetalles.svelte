@@ -193,7 +193,15 @@
                 {#if pedido.cliente_direccion}
                   <div class="flex items-start gap-3 text-sm">
                     <MapPin class="w-4 h-4 text-gray-400 mt-0.5" />
-                    <span class="text-gray-700">{pedido.cliente_direccion}</span>
+                      <div class="text-gray-700">
+                        {#if typeof pedido.cliente_direccion === 'object'}
+                          <p>{pedido.cliente_direccion.calle} {pedido.cliente_direccion.numero_exterior}</p>
+                          <p>{pedido.cliente_direccion.colonia}, {pedido.cliente_direccion.ciudad}</p>
+                          <p>{pedido.cliente_direccion.codigo_postal} - {pedido.cliente_direccion.estado}</p>
+                        {:else}
+                          <p>{pedido.cliente_direccion}</p>
+                        {/if}
+                      </div>
                   </div>
                 {/if}
               </div>
@@ -317,10 +325,10 @@
                     <span class="font-medium">{pedido.guia_envio.paqueteria}</span>
                   </div>
                   
-                  {#if pedido.guia_envio.numero}
+                  {#if pedido.guia_envio.numero_guia && pedido.guia_envio.numero_guia !== 'LOCAL'}
                     <div class="flex justify-between">
                       <span class="text-gray-600">Guía:</span>
-                      <span class="font-medium">{pedido.guia_envio.numero}</span>
+                      <span class="font-medium font-mono">{pedido.guia_envio.numero_guia}</span>
                     </div>
                   {/if}
                   

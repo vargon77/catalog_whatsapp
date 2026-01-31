@@ -39,6 +39,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           estado: estadoSeleccionado,
+          estado_nuevo: estadoSeleccionado,
           notas: `Estado cambiado manualmente a ${estadoSeleccionado}`,
           usuario: 'Admin'
         })

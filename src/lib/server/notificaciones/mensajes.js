@@ -1,5 +1,4 @@
 // src/lib/server/notificaciones/mensajes.js
-// ✅ GENERADOR DE MENSAJES WHATSAPP POR TIPO
 
 /**
  * Genera mensaje y URL de WhatsApp según el tipo de notificación

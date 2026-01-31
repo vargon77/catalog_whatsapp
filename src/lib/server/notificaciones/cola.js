@@ -1,11 +1,20 @@
 // src/lib/server/notificaciones/cola.js
+// ✅ COLA DE NOTIFICACIONES USANDO notificaciones_pendientes
+
 import { supabaseAdmin } from '$lib/supabaseServer';
-import { generarMensajeWhatsApp } from '$lib/server/whatsapp/mensajes';
+import { generarMensajeWhatsApp } from './mensajes';
 
 /**
- * Encola una notificación para envío posterior
+ * ✅ Encola una notificación para envío posterior
  */
-export async function encolarNotificacion({ pedidoId, clienteWhatsapp, tipo, prioridad = 'media', metadata = null }) {
+export async function encolarNotificacion({ 
+  pedidoId, 
+  clienteWhatsapp, 
+  tipo, 
+  prioridad = 'media', 
+  metadata = null,
+  programadoPara = null 
+}) {
   try {
     const { error } = await supabaseAdmin
       .from('notificaciones_pendientes')
@@ -17,42 +26,61 @@ export async function encolarNotificacion({ pedidoId, clienteWhatsapp, tipo, pri
         metadata,
         estado: 'pendiente',
         intentos: 0,
-        programado_para: new Date().toISOString()
+        programado_para: programadoPara || new Date().toISOString()
       });
     
-    if (error) throw error;
+    if (error) {
+      console.error('Error encolando notificación:', error);
+      throw error;
+    }
+    
+    console.log(`📬 Notificación ${tipo} encolada para pedido ${pedidoId}`);
     return { success: true };
+    
   } catch (error) {
-    console.error('Error encolando notificación:', error);
-    throw error;
+    console.error('Error en encolarNotificacion:', error);
+    return { success: false, error: error.message };
   }
 }
 
 /**
- * 🔥 FUNCIÓN CRÍTICA: Procesa notificaciones pendientes
+ * ✅ Procesa notificaciones pendientes en cola
  */
 export async function procesarCola() {
   try {
-    // 1. Obtener notificaciones pendientes
+    console.log('🔄 Procesando cola de notificaciones...');
+    
+    // Obtener notificaciones pendientes
     const { data: notificaciones, error } = await supabaseAdmin
       .from('notificaciones_pendientes')
       .select('*')
       .eq('estado', 'pendiente')
+      .lte('programado_para', new Date().toISOString()) // Solo las que ya deben enviarse
+      .lt('intentos', 3) // Máximo 3 intentos
       .order('prioridad', { ascending: false })
       .order('created_at', { ascending: true })
       .limit(10);
     
-    if (error) throw error;
+    if (error) {
+      console.error('Error obteniendo notificaciones:', error);
+      return { success: false, error: error.message };
+    }
+    
     if (!notificaciones || notificaciones.length === 0) {
-      return { success: true, procesados: 0 };
+      return { success: true, procesadas: 0 };
     }
     
     console.log(`📨 Procesando ${notificaciones.length} notificaciones...`);
     
-    // 2. Procesar cada notificación
+    let exitosas = 0;
+    let fallidas = 0;
+    
+    // Procesar cada notificación
     for (const notif of notificaciones) {
       try {
-        // 2.1 Obtener datos del pedido
+        const inicioTiempo = Date.now();
+        
+        // Obtener pedido completo
         const { data: pedido } = await supabaseAdmin
           .from('pedidos')
           .select('*, items:pedidos_items(*)')
@@ -61,67 +89,129 @@ export async function procesarCola() {
         
         if (!pedido) {
           await marcarNotificacionFallida(notif.id, 'Pedido no encontrado');
+          fallidas++;
           continue;
         }
         
-        // 2.2 Generar mensaje WhatsApp
-        const mensajeData = await generarMensajeWhatsApp(pedido, notif.tipo, notif.metadata);
+        // Obtener configuración
+        const { data: config } = await supabaseAdmin
+          .from('configuracion')
+          .select('*')
+          .single();
         
-        if (!mensajeData || !mensajeData.url) {
+        // Generar mensaje y URL de WhatsApp
+        const resultado = generarMensajeWhatsApp(
+          pedido,
+          notif.tipo,
+          config,
+          notif.metadata
+        );
+        
+        if (!resultado || !resultado.url) {
           await marcarNotificacionFallida(notif.id, 'Error generando mensaje');
+          fallidas++;
           continue;
         }
         
-        // 2.3 "Enviar" (abrir URL de WhatsApp)
-        // En servidor no podemos abrir URLs, pero registramos como enviado
+        const tiempoProceso = Date.now() - inicioTiempo;
+        
+        // Marcar como enviada
         await supabaseAdmin
           .from('notificaciones_pendientes')
           .update({
             estado: 'enviada',
-            enviado_at: new Date().toISOString(),
-            mensaje_generado: mensajeData.mensaje,
-            whatsapp_url: mensajeData.url
+            url_whatsapp: resultado.url,
+            mensaje_enviado: resultado.mensaje,
+            enviado_en: new Date().toISOString(),
+            tiempo_proceso_ms: tiempoProceso
           })
           .eq('id', notif.id);
         
-        console.log(`✅ Notificación ${notif.id} procesada para pedido ${pedido.numero_pedido}`);
+        exitosas++;
+        console.log(`✅ Notificación ${notif.tipo} procesada para pedido ${pedido.numero_pedido}`);
         
       } catch (errorNotif) {
         console.error(`❌ Error procesando notificación ${notif.id}:`, errorNotif);
-        await incrementarIntentos(notif.id);
+        await incrementarIntentos(notif.id, errorNotif.message);
+        fallidas++;
       }
     }
     
-    return { success: true, procesados: notificaciones.length };
+    console.log(`✅ Procesamiento completado: ${exitosas} exitosas, ${fallidas} fallidas`);
+    
+    return {
+      success: true,
+      procesadas: exitosas + fallidas,
+      exitosas,
+      fallidas
+    };
     
   } catch (error) {
     console.error('Error procesando cola:', error);
-    throw error;
+    return { success: false, error: error.message };
   }
 }
 
+/**
+ * Marcar notificación como fallida
+ */
 async function marcarNotificacionFallida(notifId, motivo) {
   await supabaseAdmin
     .from('notificaciones_pendientes')
     .update({
       estado: 'fallida',
-      error_mensaje: motivo
+      ultimo_error: motivo,
+      fallida_en: new Date().toISOString()
     })
     .eq('id', notifId);
 }
 
-async function incrementarIntentos(notifId) {
-  await supabaseAdmin
-    .rpc('incrementar_intentos_notificacion', { notif_id: notifId });
-}
-
-export async function limpiarNotificacionesAntiguas() {
-  const fechaLimite = new Date();
-  fechaLimite.setDate(fechaLimite.getDate() - 7);
+/**
+ * Incrementar intentos de una notificación
+ */
+async function incrementarIntentos(notifId, errorMsg) {
+  const { data: notif } = await supabaseAdmin
+    .from('notificaciones_pendientes')
+    .select('intentos')
+    .eq('id', notifId)
+    .single();
+  
+  if (!notif) return;
+  
+  const nuevoIntentos = notif.intentos + 1;
+  const nuevoEstado = nuevoIntentos >= 3 ? 'fallida' : 'pendiente';
   
   await supabaseAdmin
     .from('notificaciones_pendientes')
-    .delete()
-    .eq('estado', 'enviada')
-    .lt('enviado_at', fechaLimite.toISOString());
+    .update({
+      intentos: nuevoIntentos,
+      estado: nuevoEstado,
+      ultimo_error: errorMsg,
+      ultimo_intento: new Date().toISOString(),
+      ...(nuevoEstado === 'fallida' && { fallida_en: new Date().toISOString() })
+    })
+    .eq('id', notifId);
+}
+
+/**
+ * Limpiar notificaciones antiguas (más de 7 días)
+ */
+export async function limpiarNotificacionesAntiguas() {
+  try {
+    const fechaLimite = new Date();
+    fechaLimite.setDate(fechaLimite.getDate() - 7);
+    
+    await supabaseAdmin
+      .from('notificaciones_pendientes')
+      .delete()
+      .eq('estado', 'enviada')
+      .lt('enviado_en', fechaLimite.toISOString());
+    
+    console.log('🗑️ Notificaciones antiguas limpiadas');
+    return { success: true };
+    
+  } catch (error) {
+    console.error('Error limpiando notificaciones:', error);
+    return { success: false, error: error.message };
+  }
 }

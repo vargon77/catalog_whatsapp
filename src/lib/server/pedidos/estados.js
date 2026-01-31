@@ -80,34 +80,87 @@ export function validarTransicionConContexto(pedido, estadoNuevo) {
       valido: false,
       mensaje: 'El pago debe estar validado antes de marcar como pagado'
     };
-  }*/
+  }
   if (estadoNuevo === ESTADOS.PAGADO && !pedido.constancia_pago_url) {
     return {
       valido: false,
       mensaje: 'Debe haber un comprobante de pago para validar'
     };
-  }
+  }*/
   
-  // No puede pasar a ENVIADO sin estar PAGADO o PREPARANDO
-  if (estadoNuevo === ESTADOS.ENVIADO && 
-      ![ESTADOS.PAGADO, ESTADOS.PREPARANDO].includes(estadoActual)) {
-    return {
-      valido: false,
-      mensaje: 'El pedido debe estar pagado antes de enviarse'
-    };
+  // ✅ VALIDACIÓN ESPECÍFICA PARA PREPARANDO
+  if (estadoNuevo === ESTADOS.PREPARANDO) {
+    // Si requiere envío, debe tener dirección completa
+    if (pedido.envio && !validarDireccionCompleta(pedido.cliente_direccion)) {
+      return {
+        valido: false,
+        mensaje: 'El pedido requiere dirección de envío completa antes de preparar'
+      };
+    }
+    
+    // Debe estar pagado
+    if (pedido.estado_pago !== ESTADOS_PAGO.PAGADO) {
+      return {
+        valido: false,
+        mensaje: 'El pago debe estar validado antes de preparar el pedido'
+      };
+    }
   }
-  
-  // No puede retroceder a PENDIENTE si ya tiene pago validado
-  if (estadoNuevo === ESTADOS.PENDIENTE && 
-      pedido.estado_pago === ESTADOS_PAGO.PAGADO) {
-    return {
-      valido: false,
-      mensaje: 'No se puede retroceder un pedido con pago validado'
-    };
+  // ✅ VALIDACIÓN ESPECÍFICA PARA ENVIADO
+    if (estadoNuevo === ESTADOS.ENVIADO) {
+      // Debe tener guía de envío
+      if (pedido.envio && !validarGuiaEnvio(pedido.guia_envio)) {
+        return {
+          valido: false,
+          mensaje: 'El pedido requiere datos de guía de envío antes de marcar como enviado'
+        };
+      }
+    }
+    
+    // Validaciones existentes...
+    if (estadoNuevo === ESTADOS.PAGADO && !pedido.constancia_pago_url) {
+      return {
+        valido: false,
+        mensaje: 'Debe haber un comprobante de pago para validar'
+      };
+    }
+    
+    return { valido: true };
   }
+
+  // ✅ FUNCIÓN HELPER: Validar estructura de dirección
+  function validarDireccionCompleta(direccion) {
+    if (!direccion || typeof direccion !== 'object') return false;
+    
+    const camposObligatorios = [
+      'nombre_destinatario',
+      'telefono',
+      'calle',
+      'numero_exterior',
+      'colonia',
+      'codigo_postal',
+      'ciudad',
+      'estado',
+      'referencias',
+      'tipo_domicilio'
+    ];
+    
+    return camposObligatorios.every(campo => 
+      direccion[campo] && String(direccion[campo]).trim() !== ''
+    );
+  }
+
+  // ✅ FUNCIÓN HELPER: Validar guía de envío
+  function validarGuiaEnvio(guia) {
+    if (!guia || typeof guia !== 'object') return false;
+    
+    return Boolean(
+      guia.paqueteria && 
+      guia.numero_guia
+    );
+  }
+
   
-  return { valido: true };
-}
 
 // ========================================
 // VERIFICAR SI ES EDITABLE
